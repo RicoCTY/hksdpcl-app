@@ -31,7 +31,7 @@ export function PlaceholderStep() {
       <Button
         variant="outline"
         className="mt-8 rounded-full"
-        onClick={() => goToStep("format")}
+        onClick={() => goToStep("workbench")}
       >
         <ArrowLeft className="size-4" />
         {t("placeholder.back")}

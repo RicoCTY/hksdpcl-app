@@ -2,24 +2,24 @@ import { create } from "zustand";
 
 export type AgentStep =
   | "format"
-  | "idea"
-  | "brief"
-  | "images"
-  | "gallery"
+  | "workbench"
   | "caption_audio"
   | "export";
 
 export type ContentFormat = "story" | "post";
-export type AspectRatio = "9:16" | "2:3" | "1:1" | "3:2";
+export type AspectRatio = "9:16" | "4:5";
 export type ShellView = "home" | "history" | "characters" | "settings";
 export type ThemeMode = "light" | "dark";
-export type ModelSettingKey = "idea" | "brief" | "images" | "captionAudio";
+export type ProjectSort = "updated" | "name";
+export type ModelSettingKey = "lightweight" | "text" | "images" | "voice";
+export type CustomModelMap = Record<ModelSettingKey, string[]>;
 
 export interface ModelSettings {
-  idea: string;
-  brief: string;
+  lightweight: string;
+  text: string;
   images: string;
-  captionAudio: string;
+  voice: string;
+  customModels: CustomModelMap;
 }
 
 export interface CreativeBrief {
@@ -27,6 +27,150 @@ export interface CreativeBrief {
   visualDirection: string;
   imagePrompt: string;
   captionDirection: string;
+}
+
+export interface AiMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: number;
+}
+
+export interface PlanVersion {
+  id: string;
+  createdAt: number;
+  brief: CreativeBrief;
+  reply: string;
+}
+
+export interface GeneratedImage {
+  id: string;
+  url: string;
+  alt: string;
+  prompt: string;
+  createdAt: number;
+  status: "ready" | "error";
+  error?: string;
+  pageId?: string;
+}
+
+export interface StoryDesign {
+  summary: string;
+  style: string;
+  colorPalette: string;
+  mood: string;
+  cameraLanguage: string;
+  audience: string;
+  pacing: string;
+}
+
+export interface StoryMaterial {
+  id: string;
+  name: string;
+  kind: "image" | "video" | "audio" | "file";
+  dataUrl?: string;
+  text?: string;
+}
+
+export interface ImagePage {
+  id: string;
+  title: string;
+  idea: string;
+  scene: string;
+  characters: string;
+  dialogue: string;
+  suggestedText: string;
+  composition: string;
+  imagePrompt: string;
+  imageIds: string[];
+  selectedImageId: string | null;
+}
+
+export interface NarrationSegment {
+  id: string;
+  imageId: string;
+  text: string;
+  startSeconds: number;
+  durationSeconds: number;
+  audioUrl?: string;
+}
+
+export interface AudioVariant {
+  id: string;
+  label: string;
+  createdAt: number;
+  audioUrl?: string;
+  note?: string;
+}
+
+function normalizeStep(step: unknown): AgentStep {
+  if (
+    step === "brief" ||
+    step === "idea" ||
+    step === "gallery" ||
+    step === "images"
+  ) {
+    return "workbench";
+  }
+  if (
+    step === "format" ||
+    step === "workbench" ||
+    step === "caption_audio" ||
+    step === "export"
+  ) {
+    return step;
+  }
+  return "format";
+}
+
+function emptyBrief(): CreativeBrief {
+  return {
+    summary: "",
+    visualDirection: "",
+    imagePrompt: "",
+    captionDirection: "",
+  };
+}
+
+function emptyStoryDesign(): StoryDesign {
+  return {
+    summary: "",
+    style: "",
+    colorPalette: "",
+    mood: "",
+    cameraLanguage: "",
+    audience: "",
+    pacing: "",
+  };
+}
+
+export function storyDesignToBrief(design: StoryDesign): CreativeBrief {
+  return {
+    summary: design.summary,
+    visualDirection: [design.style, design.mood, design.colorPalette, design.cameraLanguage]
+      .filter(Boolean)
+      .join(" · "),
+    imagePrompt: [design.style, design.colorPalette, design.mood, design.cameraLanguage]
+      .filter(Boolean)
+      .join(", "),
+    captionDirection: [design.audience, design.pacing].filter(Boolean).join(" · "),
+  };
+}
+
+function emptyImagePage(partial?: Partial<ImagePage>): ImagePage {
+  return {
+    id: partial?.id ?? createId("page"),
+    title: partial?.title ?? "",
+    idea: partial?.idea ?? "",
+    scene: partial?.scene ?? "",
+    characters: partial?.characters ?? "",
+    dialogue: partial?.dialogue ?? "",
+    suggestedText: partial?.suggestedText ?? "",
+    composition: partial?.composition ?? "",
+    imagePrompt: partial?.imagePrompt ?? "",
+    imageIds: partial?.imageIds ?? [],
+    selectedImageId: partial?.selectedImageId ?? null,
+  };
 }
 
 export interface CharacterImage {
@@ -42,9 +186,44 @@ export interface Character {
   images: CharacterImage[];
   createdAt: number;
   updatedAt: number;
+  isDraft?: boolean;
+}
+
+export interface ProjectRecord {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  step: AgentStep;
+  format: ContentFormat | null;
+  aspectRatio: AspectRatio | null;
+  ideaText: string;
+  referenceImageName: string | null;
+  referenceImageDataUrl: string | null;
+  brief: CreativeBrief;
+  storyDesign: StoryDesign;
+  storyMaterials: StoryMaterial[];
+  aiMessages: AiMessage[];
+  planVersions: PlanVersion[];
+  activePlanVersionId: string | null;
+  activePageId: string | null;
+  selectedCharacterIds: string[];
+  generatedImages: GeneratedImage[];
+  imagePages: ImagePage[];
+  narrationSegments: NarrationSegment[];
+  audioVariants: AudioVariant[];
+  selectedAudioVariantId: string | null;
+  narrationConfirmed: boolean;
+  selectedImageId: string | null;
+  selectedCaption: string;
+  voiceoverGenerated: boolean;
 }
 
 export interface ProjectState {
+  projectId: string;
+  projectName: string;
+  projects: ProjectRecord[];
+  projectSort: ProjectSort;
   view: ShellView;
   step: AgentStep;
   format: ContentFormat | null;
@@ -54,26 +233,74 @@ export interface ProjectState {
   modelSettings: ModelSettings;
   ideaText: string;
   referenceImageName: string | null;
+  referenceImageDataUrl: string | null;
   brief: CreativeBrief;
+  storyDesign: StoryDesign;
+  storyMaterials: StoryMaterial[];
+  aiMessages: AiMessage[];
+  planVersions: PlanVersion[];
+  activePlanVersionId: string | null;
+  activePageId: string | null;
+  selectedCharacterIds: string[];
+  generatedImages: GeneratedImage[];
+  imagePages: ImagePage[];
+  narrationSegments: NarrationSegment[];
+  audioVariants: AudioVariant[];
+  selectedAudioVariantId: string | null;
+  narrationConfirmed: boolean;
   selectedImageId: string | null;
   selectedCaption: string;
   voiceoverGenerated: boolean;
   characters: Character[];
   activeCharacterId: string | null;
   setView: (view: ShellView) => void;
+  setProjectName: (projectName: string) => void;
+  setProjectSort: (projectSort: ProjectSort) => void;
+  renameProject: (projectId: string, projectName: string) => void;
+  deleteProject: (projectId: string) => void;
+  loadProject: (projectId: string) => void;
   setFormat: (format: ContentFormat) => void;
   setAspectRatio: (aspectRatio: AspectRatio) => void;
   setPoeApiKey: (poeApiKey: string) => void;
   setThemeMode: (themeMode: ThemeMode) => void;
   setModelSetting: (key: ModelSettingKey, value: string) => void;
+  addCustomModel: (key: ModelSettingKey, modelName: string) => void;
+  removeCustomModel: (key: ModelSettingKey, modelName: string) => void;
   setIdeaText: (ideaText: string) => void;
   setReferenceImageName: (referenceImageName: string | null) => void;
+  setReferenceImage: (referenceImage: {
+    name: string;
+    dataUrl: string;
+  } | null) => void;
   setBriefField: (field: keyof CreativeBrief, value: string) => void;
+  setBrief: (brief: CreativeBrief) => void;
+  setStoryDesign: (storyDesign: StoryDesign) => void;
+  setStoryDesignField: (field: keyof StoryDesign, value: string) => void;
+  setStoryMaterials: (storyMaterials: StoryMaterial[]) => void;
+  addStoryMaterial: (material: Omit<StoryMaterial, "id">) => void;
+  removeStoryMaterial: (materialId: string) => void;
+  setAiMessages: (messages: AiMessage[]) => void;
+  addPlanVersion: (version: Omit<PlanVersion, "id" | "createdAt">) => string;
+  restorePlanVersion: (versionId: string) => void;
+  setActivePageId: (activePageId: string | null) => void;
+  setSelectedCharacterIds: (selectedCharacterIds: string[]) => void;
+  toggleSelectedCharacter: (characterId: string) => void;
+  setGeneratedImages: (images: GeneratedImage[]) => void;
+  setImagePages: (pages: ImagePage[]) => void;
+  updateImagePage: (pageId: string, updates: Partial<ImagePage>) => void;
+  addImagePage: (page?: Partial<ImagePage>) => string;
+  removeImagePage: (pageId: string) => void;
+  reorderImagePages: (fromIndex: number, toIndex: number) => void;
+  setNarrationSegments: (segments: NarrationSegment[]) => void;
+  setAudioVariants: (variants: AudioVariant[]) => void;
+  setSelectedAudioVariantId: (selectedAudioVariantId: string | null) => void;
+  setNarrationConfirmed: (narrationConfirmed: boolean) => void;
   setSelectedImageId: (selectedImageId: string | null) => void;
   setSelectedCaption: (selectedCaption: string) => void;
   setVoiceoverGenerated: (voiceoverGenerated: boolean) => void;
   setActiveCharacterId: (activeCharacterId: string | null) => void;
   createCharacter: () => string;
+  completeCharacter: (characterId: string) => void;
   updateCharacter: (
     characterId: string,
     updates: Partial<Pick<Character, "name" | "background">>,
@@ -93,15 +320,30 @@ const POE_API_KEY_STORAGE_KEY = "hksdpcl-poe-api-key";
 const THEME_MODE_STORAGE_KEY = "hksdpcl.theme-mode";
 const MODEL_SETTINGS_STORAGE_KEY = "hksdpcl.model-settings";
 const CHARACTERS_STORAGE_KEY = "hksdpcl.characters";
+const PROJECTS_STORAGE_KEY = "hksdpcl.projects";
+const PROJECT_SORT_STORAGE_KEY = "hksdpcl.project-sort";
 const LEGACY_CHARACTER_BACKGROUND_STORAGE_KEY =
   "hksdpcl.character-background";
 
 const DEFAULT_MODEL_SETTINGS: ModelSettings = {
-  idea: "",
-  brief: "",
-  images: "",
-  captionAudio: "",
+  lightweight: "gpt-4.1-mini",
+  text: "gemini-3.6-flash",
+  images: "seedream-4.5",
+  voice: "minimax-speech-2.8",
+  customModels: {
+    lightweight: [],
+    text: [],
+    images: [],
+    voice: [],
+  },
 };
+
+const MODEL_SETTING_KEYS: ModelSettingKey[] = [
+  "lightweight",
+  "text",
+  "images",
+  "voice",
+];
 
 function createId(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -155,14 +397,69 @@ function getStoredModelSettings(): ModelSettings {
   const saved = readLocalStorage(MODEL_SETTINGS_STORAGE_KEY);
   if (!saved) return DEFAULT_MODEL_SETTINGS;
   try {
-    const parsed = JSON.parse(saved) as Partial<ModelSettings>;
-    return {
-      idea: typeof parsed.idea === "string" ? parsed.idea : "",
-      brief: typeof parsed.brief === "string" ? parsed.brief : "",
-      images: typeof parsed.images === "string" ? parsed.images : "",
-      captionAudio:
-        typeof parsed.captionAudio === "string" ? parsed.captionAudio : "",
+    const parsed = JSON.parse(saved) as Partial<ModelSettings> & {
+      idea?: string;
+      brief?: string;
+      captionAudio?: string;
     };
+    const text =
+      typeof parsed.text === "string" && parsed.text
+        ? parsed.text
+        : typeof parsed.brief === "string" &&
+            parsed.brief &&
+            parsed.brief !== "Claude-Sonnet-4.6"
+          ? parsed.brief
+          : DEFAULT_MODEL_SETTINGS.text;
+    const voice =
+      typeof parsed.voice === "string" && parsed.voice
+        ? parsed.voice
+        : typeof parsed.captionAudio === "string" && parsed.captionAudio
+          ? parsed.captionAudio
+          : DEFAULT_MODEL_SETTINGS.voice;
+    const activeModels: Record<ModelSettingKey, string> = {
+      lightweight:
+        typeof parsed.lightweight === "string" && parsed.lightweight
+          ? parsed.lightweight
+          : DEFAULT_MODEL_SETTINGS.lightweight,
+      text,
+      images:
+        typeof parsed.images === "string" && parsed.images
+          ? parsed.images
+          : DEFAULT_MODEL_SETTINGS.images,
+      voice,
+    };
+    const savedCustomModels =
+      parsed.customModels as Partial<Record<ModelSettingKey, unknown>> | undefined;
+    const customModels = MODEL_SETTING_KEYS.reduce<CustomModelMap>(
+      (models, key) => {
+        const savedValues = Array.isArray(savedCustomModels?.[key])
+          ? savedCustomModels[key].filter(
+              (value): value is string =>
+                typeof value === "string" && value.trim().length > 0,
+            )
+          : [];
+        const values = Array.from(
+          new Set(savedValues.map((value) => value.trim())),
+        ).filter((value) => value !== DEFAULT_MODEL_SETTINGS[key]);
+        const activeModel = activeModels[key];
+        if (
+          activeModel !== DEFAULT_MODEL_SETTINGS[key] &&
+          !values.includes(activeModel)
+        ) {
+          values.push(activeModel);
+        }
+        models[key] = values;
+        return models;
+      },
+      {
+        lightweight: [],
+        text: [],
+        images: [],
+        voice: [],
+      },
+    );
+
+    return { ...activeModels, customModels };
   } catch {
     return DEFAULT_MODEL_SETTINGS;
   }
@@ -209,6 +506,7 @@ function normalizeCharacter(value: unknown): Character | null {
       typeof candidate.createdAt === "number" ? candidate.createdAt : Date.now(),
     updatedAt:
       typeof candidate.updatedAt === "number" ? candidate.updatedAt : Date.now(),
+    isDraft: candidate.isDraft === true,
   };
 }
 
@@ -220,7 +518,7 @@ function getStoredCharacters(): Character[] {
       if (Array.isArray(parsed)) {
         return parsed.flatMap((item) => {
           const character = normalizeCharacter(item);
-          return character ? [character] : [];
+          return character && !character.isDraft ? [character] : [];
         });
       }
     } catch {
@@ -247,58 +545,536 @@ function getStoredCharacters(): Character[] {
 }
 
 function persistCharacters(characters: Character[]) {
-  writeLocalStorage(CHARACTERS_STORAGE_KEY, JSON.stringify(characters));
+  writeLocalStorage(
+    CHARACTERS_STORAGE_KEY,
+    JSON.stringify(characters.filter((character) => !character.isDraft)),
+  );
+}
+
+function createEmptyProject(): ProjectRecord {
+  const now = Date.now();
+  return {
+    id: createId("project"),
+    name: "",
+    createdAt: now,
+    updatedAt: now,
+    step: "format",
+    format: null,
+    aspectRatio: null,
+    ideaText: "",
+    referenceImageName: null,
+    referenceImageDataUrl: null,
+    brief: emptyBrief(),
+    storyDesign: emptyStoryDesign(),
+    storyMaterials: [],
+    aiMessages: [],
+    planVersions: [],
+    activePlanVersionId: null,
+    activePageId: null,
+    selectedCharacterIds: [],
+    generatedImages: [],
+    imagePages: [],
+    narrationSegments: [],
+    audioVariants: [],
+    selectedAudioVariantId: null,
+    narrationConfirmed: false,
+    selectedImageId: null,
+    selectedCaption: "",
+    voiceoverGenerated: false,
+  };
+}
+
+function normalizeProject(value: unknown): ProjectRecord | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<ProjectRecord>;
+  if (typeof candidate.id !== "string") return null;
+  const brief = candidate.brief;
+  const normalizedFormat =
+    candidate.format === "story" || candidate.format === "post"
+      ? candidate.format
+      : null;
+  return {
+    ...createEmptyProject(),
+    ...candidate,
+    id: candidate.id,
+    name: typeof candidate.name === "string" ? candidate.name : "",
+    createdAt:
+      typeof candidate.createdAt === "number" ? candidate.createdAt : Date.now(),
+    updatedAt:
+      typeof candidate.updatedAt === "number" ? candidate.updatedAt : Date.now(),
+    step: normalizeStep(candidate.step),
+    format: normalizedFormat,
+    aspectRatio:
+      normalizedFormat === "story"
+        ? "9:16"
+        : normalizedFormat === "post"
+          ? "4:5"
+          : null,
+    ideaText: typeof candidate.ideaText === "string" ? candidate.ideaText : "",
+    referenceImageName:
+      typeof candidate.referenceImageName === "string"
+        ? candidate.referenceImageName
+        : null,
+    referenceImageDataUrl:
+      typeof candidate.referenceImageDataUrl === "string"
+        ? candidate.referenceImageDataUrl
+        : null,
+    brief: {
+      summary: typeof brief?.summary === "string" ? brief.summary : "",
+      visualDirection:
+        typeof brief?.visualDirection === "string" ? brief.visualDirection : "",
+      imagePrompt: typeof brief?.imagePrompt === "string" ? brief.imagePrompt : "",
+      captionDirection:
+        typeof brief?.captionDirection === "string" ? brief.captionDirection : "",
+    },
+    storyDesign: (() => {
+      const design = candidate.storyDesign as Partial<StoryDesign> | undefined;
+      if (design && typeof design === "object") {
+        return {
+          summary: typeof design.summary === "string" ? design.summary : "",
+          style: typeof design.style === "string" ? design.style : "",
+          colorPalette:
+            typeof design.colorPalette === "string" ? design.colorPalette : "",
+          mood: typeof design.mood === "string" ? design.mood : "",
+          cameraLanguage:
+            typeof design.cameraLanguage === "string" ? design.cameraLanguage : "",
+          audience: typeof design.audience === "string" ? design.audience : "",
+          pacing: typeof design.pacing === "string" ? design.pacing : "",
+        };
+      }
+      return {
+        summary: typeof brief?.summary === "string" ? brief.summary : "",
+        style:
+          typeof brief?.visualDirection === "string" ? brief.visualDirection : "",
+        colorPalette: "",
+        mood: "",
+        cameraLanguage: "",
+        audience:
+          typeof brief?.captionDirection === "string"
+            ? brief.captionDirection
+            : "",
+        pacing: "",
+      };
+    })(),
+    storyMaterials: Array.isArray(candidate.storyMaterials)
+      ? candidate.storyMaterials.flatMap((material) => {
+          if (!material || typeof material !== "object") return [];
+          const item = material as Partial<StoryMaterial>;
+          if (typeof item.name !== "string") return [];
+          const kind =
+            item.kind === "image" ||
+            item.kind === "video" ||
+            item.kind === "audio" ||
+            item.kind === "file"
+              ? item.kind
+              : "file";
+          return [
+            {
+              id: typeof item.id === "string" ? item.id : createId("material"),
+              name: item.name,
+              kind,
+              ...(typeof item.dataUrl === "string" ? { dataUrl: item.dataUrl } : {}),
+              ...(typeof item.text === "string" ? { text: item.text } : {}),
+            },
+          ];
+        })
+      : [],
+    aiMessages: Array.isArray(candidate.aiMessages)
+      ? candidate.aiMessages.flatMap((message) => {
+          if (!message || typeof message !== "object") return [];
+          const item = message as Partial<AiMessage>;
+          if (
+            (item.role !== "user" && item.role !== "assistant") ||
+            typeof item.content !== "string"
+          ) {
+            return [];
+          }
+          return [{
+            id: typeof item.id === "string" ? item.id : createId("message"),
+            role: item.role,
+            content: item.content,
+            createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+          }];
+        })
+      : [],
+    planVersions: Array.isArray(candidate.planVersions)
+      ? candidate.planVersions.flatMap((version) => {
+          if (!version || typeof version !== "object") return [];
+          const item = version as Partial<PlanVersion>;
+          if (!item.brief || typeof item.brief !== "object") return [];
+          const versionBrief = item.brief as Partial<CreativeBrief>;
+          return [{
+            id: typeof item.id === "string" ? item.id : createId("plan"),
+            createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+            reply: typeof item.reply === "string" ? item.reply : "",
+            brief: {
+              summary: typeof versionBrief.summary === "string" ? versionBrief.summary : "",
+              visualDirection:
+                typeof versionBrief.visualDirection === "string"
+                  ? versionBrief.visualDirection
+                  : "",
+              imagePrompt:
+                typeof versionBrief.imagePrompt === "string"
+                  ? versionBrief.imagePrompt
+                  : "",
+              captionDirection:
+                typeof versionBrief.captionDirection === "string"
+                  ? versionBrief.captionDirection
+                  : "",
+            },
+          }];
+        })
+      : [],
+    activePlanVersionId:
+      typeof candidate.activePlanVersionId === "string"
+        ? candidate.activePlanVersionId
+        : null,
+    activePageId:
+      typeof candidate.activePageId === "string" ? candidate.activePageId : null,
+    selectedCharacterIds: Array.isArray(candidate.selectedCharacterIds)
+      ? candidate.selectedCharacterIds.filter(
+          (id): id is string => typeof id === "string",
+        )
+      : [],
+    generatedImages: Array.isArray(candidate.generatedImages)
+      ? candidate.generatedImages.flatMap((image) => {
+          if (!image || typeof image !== "object") return [];
+          const item = image as Partial<GeneratedImage>;
+          if (typeof item.id !== "string" || typeof item.url !== "string") return [];
+          return [{
+            id: item.id,
+            url: item.url,
+            alt: typeof item.alt === "string" ? item.alt : "",
+            prompt: typeof item.prompt === "string" ? item.prompt : "",
+            createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+            status: item.status === "error" ? "error" : "ready",
+            ...(typeof item.error === "string" ? { error: item.error } : {}),
+            ...(typeof item.pageId === "string" ? { pageId: item.pageId } : {}),
+          }];
+        })
+      : [],
+    imagePages: Array.isArray(candidate.imagePages)
+      ? candidate.imagePages.flatMap((page) => {
+          if (!page || typeof page !== "object") return [];
+          const item = page as Partial<ImagePage>;
+          if (typeof item.id !== "string") return [];
+          return [
+            emptyImagePage({
+              id: item.id,
+              title: typeof item.title === "string" ? item.title : "",
+              idea: typeof item.idea === "string" ? item.idea : "",
+              scene:
+                typeof item.scene === "string"
+                  ? item.scene
+                  : typeof item.idea === "string"
+                    ? item.idea
+                    : "",
+              characters:
+                typeof item.characters === "string" ? item.characters : "",
+              dialogue: typeof item.dialogue === "string" ? item.dialogue : "",
+              suggestedText:
+                typeof item.suggestedText === "string" ? item.suggestedText : "",
+              composition:
+                typeof item.composition === "string" ? item.composition : "",
+              imagePrompt:
+                typeof item.imagePrompt === "string" ? item.imagePrompt : "",
+              imageIds: Array.isArray(item.imageIds)
+                ? item.imageIds.filter((id): id is string => typeof id === "string")
+                : [],
+              selectedImageId:
+                typeof item.selectedImageId === "string"
+                  ? item.selectedImageId
+                  : null,
+            }),
+          ];
+        })
+      : [],
+    narrationSegments: Array.isArray(candidate.narrationSegments)
+      ? candidate.narrationSegments.flatMap((segment) => {
+          if (!segment || typeof segment !== "object") return [];
+          const item = segment as Partial<NarrationSegment>;
+          if (
+            typeof item.id !== "string" ||
+            typeof item.imageId !== "string" ||
+            typeof item.text !== "string"
+          ) {
+            return [];
+          }
+          return [{
+            id: item.id,
+            imageId: item.imageId,
+            text: item.text,
+            startSeconds: typeof item.startSeconds === "number" ? item.startSeconds : 0,
+            durationSeconds:
+              typeof item.durationSeconds === "number" ? item.durationSeconds : 4,
+            ...(typeof item.audioUrl === "string" ? { audioUrl: item.audioUrl } : {}),
+          }];
+        })
+      : [],
+    audioVariants: Array.isArray(candidate.audioVariants)
+      ? candidate.audioVariants.flatMap((variant) => {
+          if (!variant || typeof variant !== "object") return [];
+          const item = variant as Partial<AudioVariant>;
+          if (typeof item.id !== "string" || typeof item.label !== "string") return [];
+          return [{
+            id: item.id,
+            label: item.label,
+            createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+            ...(typeof item.audioUrl === "string" ? { audioUrl: item.audioUrl } : {}),
+            ...(typeof item.note === "string" ? { note: item.note } : {}),
+          }];
+        })
+      : [],
+    selectedAudioVariantId:
+      typeof candidate.selectedAudioVariantId === "string"
+        ? candidate.selectedAudioVariantId
+        : null,
+    narrationConfirmed: candidate.narrationConfirmed === true,
+    selectedImageId:
+      typeof candidate.selectedImageId === "string" ? candidate.selectedImageId : null,
+    selectedCaption:
+      typeof candidate.selectedCaption === "string" ? candidate.selectedCaption : "",
+    voiceoverGenerated: candidate.voiceoverGenerated === true,
+  };
+}
+
+function getStoredProjects() {
+  const saved = readLocalStorage(PROJECTS_STORAGE_KEY);
+  if (saved) {
+    try {
+      const parsed: unknown = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        const projects = parsed.flatMap((item) => {
+          const project = normalizeProject(item);
+          return project ? [project] : [];
+        });
+        if (projects.length) return projects;
+      }
+    } catch {
+      // Start with a clean local project when persisted data is invalid.
+    }
+  }
+  return [createEmptyProject()];
+}
+
+function persistProjects(projects: ProjectRecord[]) {
+  writeLocalStorage(PROJECTS_STORAGE_KEY, JSON.stringify(projects));
+}
+
+function getStoredProjectSort(): ProjectSort {
+  return readLocalStorage(PROJECT_SORT_STORAGE_KEY) === "name" ? "name" : "updated";
+}
+
+function persistProjectSort(projectSort: ProjectSort) {
+  writeLocalStorage(PROJECT_SORT_STORAGE_KEY, projectSort);
 }
 
 const INITIAL_THEME_MODE = getStoredThemeMode();
 applyThemeMode(INITIAL_THEME_MODE);
 
-const STORY_ASPECT: AspectRatio = "9:16";
-const DEFAULT_POST_ASPECT: AspectRatio = "1:1";
+const INITIAL_PROJECTS = getStoredProjects();
+const INITIAL_PROJECT = INITIAL_PROJECTS[0];
+const INITIAL_PROJECT_SORT = getStoredProjectSort();
 
-export const useProjectStore = create<ProjectState>((set, get) => ({
+const STORY_ASPECT: AspectRatio = "9:16";
+const DEFAULT_POST_ASPECT: AspectRatio = "4:5";
+
+export const useProjectStore = create<ProjectState>((set, get) => {
+  const updateProject = (updates: Partial<ProjectRecord>) => {
+    const current = get();
+    const projects = current.projects.map((project) =>
+      project.id === current.projectId
+        ? { ...project, ...updates, updatedAt: Date.now() }
+        : project,
+    );
+    const updatedProject = projects.find(
+      (project) => project.id === current.projectId,
+    );
+    persistProjects(projects);
+    set({
+      ...updates,
+      projectName: updatedProject?.name ?? current.projectName,
+      projects,
+    });
+  };
+
+  return {
+  projectId: INITIAL_PROJECT.id,
+  projectName: INITIAL_PROJECT.name,
+  projects: INITIAL_PROJECTS,
+  projectSort: INITIAL_PROJECT_SORT,
   view: "home",
-  step: "format",
-  format: null,
-  aspectRatio: null,
+  step: INITIAL_PROJECT.step,
+  format: INITIAL_PROJECT.format,
+  aspectRatio: INITIAL_PROJECT.aspectRatio,
   poeApiKey: getStoredPoeApiKey(),
   themeMode: INITIAL_THEME_MODE,
   modelSettings: getStoredModelSettings(),
-  ideaText: "",
-  referenceImageName: null,
-  brief: {
-    summary: "",
-    visualDirection: "",
-    imagePrompt: "",
-    captionDirection: "",
-  },
-  selectedImageId: null,
-  selectedCaption: "",
-  voiceoverGenerated: false,
+  ideaText: INITIAL_PROJECT.ideaText,
+  referenceImageName: INITIAL_PROJECT.referenceImageName,
+  referenceImageDataUrl: INITIAL_PROJECT.referenceImageDataUrl,
+  brief: INITIAL_PROJECT.brief,
+  storyDesign: INITIAL_PROJECT.storyDesign,
+  storyMaterials: INITIAL_PROJECT.storyMaterials,
+  aiMessages: INITIAL_PROJECT.aiMessages,
+  planVersions: INITIAL_PROJECT.planVersions,
+  activePlanVersionId: INITIAL_PROJECT.activePlanVersionId,
+  activePageId: INITIAL_PROJECT.activePageId,
+  selectedCharacterIds: INITIAL_PROJECT.selectedCharacterIds,
+  generatedImages: INITIAL_PROJECT.generatedImages,
+  imagePages: INITIAL_PROJECT.imagePages,
+  narrationSegments: INITIAL_PROJECT.narrationSegments,
+  audioVariants: INITIAL_PROJECT.audioVariants,
+  selectedAudioVariantId: INITIAL_PROJECT.selectedAudioVariantId,
+  narrationConfirmed: INITIAL_PROJECT.narrationConfirmed,
+  selectedImageId: INITIAL_PROJECT.selectedImageId,
+  selectedCaption: INITIAL_PROJECT.selectedCaption,
+  voiceoverGenerated: INITIAL_PROJECT.voiceoverGenerated,
   characters: getStoredCharacters(),
   activeCharacterId: null,
 
-  setView: (view) =>
+  setView: (view) => {
+    const currentCharacters = get().characters;
+    const characters =
+      view === "characters"
+        ? currentCharacters
+        : currentCharacters.filter((character) => !character.isDraft);
+    if (characters.length !== currentCharacters.length) {
+      persistCharacters(characters);
+    }
     set({
       view,
+      characters,
       ...(view === "characters" ? { activeCharacterId: null } : {}),
-    }),
-
-  setFormat: (format) => {
-    if (format === "story") {
-      const current = get().aspectRatio;
-      const nextRatio =
-        current === "9:16" || current === "2:3" ? current : STORY_ASPECT;
-      set({ format, aspectRatio: nextRatio });
-      return;
-    }
-    const current = get().aspectRatio;
-    const nextRatio =
-      current === "1:1" || current === "3:2" ? current : DEFAULT_POST_ASPECT;
-    set({ format, aspectRatio: nextRatio });
+    });
   },
 
-  setAspectRatio: (aspectRatio) => set({ aspectRatio }),
+  setProjectName: (projectName) => {
+    const trimmedName = projectName.trimStart().slice(0, 80);
+    const projects = get().projects.map((project) =>
+      project.id === get().projectId
+        ? { ...project, name: trimmedName, updatedAt: Date.now() }
+        : project,
+    );
+    persistProjects(projects);
+    set({ projectName: trimmedName, projects });
+  },
+
+  setProjectSort: (projectSort) => {
+    persistProjectSort(projectSort);
+    set({ projectSort });
+  },
+
+  renameProject: (projectId, projectName) => {
+    const trimmedName = projectName.trim().slice(0, 80);
+    if (!trimmedName) return;
+    const projects = get().projects.map((project) =>
+      project.id === projectId
+        ? { ...project, name: trimmedName, updatedAt: Date.now() }
+        : project,
+    );
+    persistProjects(projects);
+    set(
+      projectId === get().projectId
+        ? { projectName: trimmedName, projects }
+        : { projects },
+    );
+  },
+
+  deleteProject: (projectId) => {
+    const current = get();
+    const remaining = current.projects.filter((project) => project.id !== projectId);
+    if (remaining.length === 0) {
+      const emptyProject = createEmptyProject();
+      persistProjects([emptyProject]);
+      set({
+        projectId: emptyProject.id,
+        projectName: emptyProject.name,
+        projects: [emptyProject],
+        view: "home",
+        step: emptyProject.step,
+        format: emptyProject.format,
+        aspectRatio: emptyProject.aspectRatio,
+        ideaText: emptyProject.ideaText,
+        referenceImageName: emptyProject.referenceImageName,
+        referenceImageDataUrl: emptyProject.referenceImageDataUrl,
+        brief: emptyProject.brief,
+        storyDesign: emptyProject.storyDesign,
+        storyMaterials: emptyProject.storyMaterials,
+        aiMessages: emptyProject.aiMessages,
+        planVersions: emptyProject.planVersions,
+        activePlanVersionId: emptyProject.activePlanVersionId,
+        activePageId: emptyProject.activePageId,
+        selectedCharacterIds: emptyProject.selectedCharacterIds,
+        generatedImages: emptyProject.generatedImages,
+        imagePages: emptyProject.imagePages,
+        narrationSegments: emptyProject.narrationSegments,
+        audioVariants: emptyProject.audioVariants,
+        selectedAudioVariantId: emptyProject.selectedAudioVariantId,
+        narrationConfirmed: emptyProject.narrationConfirmed,
+        selectedImageId: emptyProject.selectedImageId,
+        selectedCaption: emptyProject.selectedCaption,
+        voiceoverGenerated: emptyProject.voiceoverGenerated,
+      });
+      return;
+    }
+    persistProjects(remaining);
+    if (projectId !== current.projectId) {
+      set({ projects: remaining });
+      return;
+    }
+    const nextProject = remaining[0];
+    set({ projects: remaining });
+    get().loadProject(nextProject.id);
+  },
+
+  loadProject: (projectId) => {
+    const project = get().projects.find((item) => item.id === projectId);
+    if (!project) return;
+    set({
+      projectId: project.id,
+      projectName: project.name,
+      step: project.step,
+      format: project.format,
+      aspectRatio: project.aspectRatio,
+      ideaText: project.ideaText,
+      referenceImageName: project.referenceImageName,
+      referenceImageDataUrl: project.referenceImageDataUrl,
+      brief: project.brief,
+      storyDesign: project.storyDesign,
+      storyMaterials: project.storyMaterials,
+      aiMessages: project.aiMessages,
+      planVersions: project.planVersions,
+      activePlanVersionId: project.activePlanVersionId,
+      activePageId: project.activePageId,
+      selectedCharacterIds: project.selectedCharacterIds,
+      generatedImages: project.generatedImages,
+      imagePages: project.imagePages,
+      narrationSegments: project.narrationSegments,
+      audioVariants: project.audioVariants,
+      selectedAudioVariantId: project.selectedAudioVariantId,
+      narrationConfirmed: project.narrationConfirmed,
+      selectedImageId: project.selectedImageId,
+      selectedCaption: project.selectedCaption,
+      voiceoverGenerated: project.voiceoverGenerated,
+      view: "home",
+      activeCharacterId: null,
+    });
+  },
+
+  setFormat: (format) => {
+    // Size is only choosable on the format step; afterwards it locks image generation.
+    if (get().step !== "format") return;
+    updateProject({
+      format,
+      aspectRatio: format === "story" ? STORY_ASPECT : DEFAULT_POST_ASPECT,
+    });
+  },
+
+  setAspectRatio: (aspectRatio) => {
+    if (get().step !== "format") return;
+    updateProject({ aspectRatio });
+  },
 
   setPoeApiKey: (poeApiKey) => {
     persistPoeApiKey(poeApiKey);
@@ -312,24 +1088,207 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setModelSetting: (key, value) => {
-    const modelSettings = { ...get().modelSettings, [key]: value };
+    const modelSettings = {
+      ...get().modelSettings,
+      [key]: value,
+    };
     persistModelSettings(modelSettings);
     set({ modelSettings });
   },
 
-  setIdeaText: (ideaText) => set({ ideaText }),
+  addCustomModel: (key, modelName) => {
+    const trimmedModelName = modelName.trim();
+    if (!trimmedModelName || trimmedModelName === DEFAULT_MODEL_SETTINGS[key]) {
+      return;
+    }
+    const currentSettings = get().modelSettings;
+    const customModels = {
+      ...currentSettings.customModels,
+      [key]: Array.from(
+        new Set([
+          ...(currentSettings.customModels[key] ?? []),
+          trimmedModelName,
+        ]),
+      ),
+    };
+    const modelSettings = {
+      ...currentSettings,
+      customModels,
+      [key]: trimmedModelName,
+    };
+    persistModelSettings(modelSettings);
+    set({ modelSettings });
+  },
 
-  setReferenceImageName: (referenceImageName) => set({ referenceImageName }),
+  removeCustomModel: (key, modelName) => {
+    const currentSettings = get().modelSettings;
+    const customModels = {
+      ...currentSettings.customModels,
+      [key]: (currentSettings.customModels[key] ?? []).filter(
+        (value) => value !== modelName,
+      ),
+    };
+    const modelSettings = {
+      ...currentSettings,
+      customModels,
+      [key]: currentSettings[key] === modelName
+        ? DEFAULT_MODEL_SETTINGS[key]
+        : currentSettings[key],
+    };
+    persistModelSettings(modelSettings);
+    set({ modelSettings });
+  },
+
+  setIdeaText: (ideaText) => {
+    updateProject({ ideaText });
+  },
+
+  setReferenceImageName: (referenceImageName) =>
+    updateProject({ referenceImageName }),
+
+  setReferenceImage: (referenceImage) =>
+    updateProject({
+      referenceImageName: referenceImage?.name ?? null,
+      referenceImageDataUrl: referenceImage?.dataUrl ?? null,
+    }),
 
   setBriefField: (field, value) =>
-    set({ brief: { ...get().brief, [field]: value } }),
+    updateProject({ brief: { ...get().brief, [field]: value } }),
 
-  setSelectedImageId: (selectedImageId) => set({ selectedImageId }),
+  setBrief: (brief) => updateProject({ brief }),
 
-  setSelectedCaption: (selectedCaption) => set({ selectedCaption }),
+  setStoryDesign: (storyDesign) =>
+    updateProject({
+      storyDesign,
+      brief: storyDesignToBrief(storyDesign),
+    }),
+
+  setStoryDesignField: (field, value) => {
+    const storyDesign = { ...get().storyDesign, [field]: value };
+    updateProject({
+      storyDesign,
+      brief: storyDesignToBrief(storyDesign),
+    });
+  },
+
+  setStoryMaterials: (storyMaterials) => updateProject({ storyMaterials }),
+
+  addStoryMaterial: (material) => {
+    const storyMaterials = [
+      ...get().storyMaterials,
+      { ...material, id: createId("material") },
+    ];
+    updateProject({ storyMaterials });
+  },
+
+  removeStoryMaterial: (materialId) => {
+    updateProject({
+      storyMaterials: get().storyMaterials.filter(
+        (material) => material.id !== materialId,
+      ),
+    });
+  },
+
+  setAiMessages: (aiMessages) => updateProject({ aiMessages }),
+
+  setActivePageId: (activePageId) => updateProject({ activePageId }),
+
+  addPlanVersion: (version) => {
+    const id = createId("plan");
+    const next: PlanVersion = {
+      id,
+      createdAt: Date.now(),
+      brief: { ...version.brief },
+      reply: version.reply,
+    };
+    const planVersions = [...get().planVersions, next];
+    updateProject({
+      planVersions,
+      activePlanVersionId: id,
+      brief: { ...version.brief },
+    });
+    return id;
+  },
+
+  restorePlanVersion: (versionId) => {
+    const version = get().planVersions.find((item) => item.id === versionId);
+    if (!version) return;
+    updateProject({
+      activePlanVersionId: version.id,
+      brief: { ...version.brief },
+    });
+  },
+
+  setSelectedCharacterIds: (selectedCharacterIds) =>
+    updateProject({ selectedCharacterIds }),
+
+  toggleSelectedCharacter: (characterId) => {
+    const current = get().selectedCharacterIds;
+    const selectedCharacterIds = current.includes(characterId)
+      ? current.filter((id) => id !== characterId)
+      : [...current, characterId];
+    updateProject({ selectedCharacterIds });
+  },
+
+  setGeneratedImages: (generatedImages) => updateProject({ generatedImages }),
+
+  setImagePages: (imagePages) => updateProject({ imagePages }),
+
+  updateImagePage: (pageId, updates) => {
+    const imagePages = get().imagePages.map((page) =>
+      page.id === pageId ? { ...page, ...updates } : page,
+    );
+    updateProject({ imagePages });
+  },
+
+  addImagePage: (page) => {
+    const next = emptyImagePage(page);
+    updateProject({
+      imagePages: [...get().imagePages, next],
+      activePageId: next.id,
+    });
+    return next.id;
+  },
+
+  removeImagePage: (pageId) => {
+    const imagePages = get().imagePages.filter((page) => page.id !== pageId);
+    const activePageId =
+      get().activePageId === pageId ? null : get().activePageId;
+    updateProject({ imagePages, activePageId });
+  },
+
+  reorderImagePages: (fromIndex, toIndex) => {
+    const imagePages = [...get().imagePages];
+    if (
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= imagePages.length ||
+      toIndex >= imagePages.length
+    ) {
+      return;
+    }
+    const [moved] = imagePages.splice(fromIndex, 1);
+    imagePages.splice(toIndex, 0, moved);
+    updateProject({ imagePages });
+  },
+
+  setNarrationSegments: (narrationSegments) =>
+    updateProject({ narrationSegments }),
+
+  setAudioVariants: (audioVariants) => updateProject({ audioVariants }),
+
+  setSelectedAudioVariantId: (selectedAudioVariantId) =>
+    updateProject({ selectedAudioVariantId }),
+
+  setNarrationConfirmed: (narrationConfirmed) =>
+    updateProject({ narrationConfirmed }),
+
+  setSelectedImageId: (selectedImageId) => updateProject({ selectedImageId }),
+
+  setSelectedCaption: (selectedCaption) => updateProject({ selectedCaption }),
 
   setVoiceoverGenerated: (voiceoverGenerated) =>
-    set({ voiceoverGenerated }),
+    updateProject({ voiceoverGenerated }),
 
   setActiveCharacterId: (activeCharacterId) => set({ activeCharacterId }),
 
@@ -342,11 +1301,28 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       images: [],
       createdAt: now,
       updatedAt: now,
+      isDraft: true,
     };
     const characters = [...get().characters, character];
     persistCharacters(characters);
     set({ characters, activeCharacterId: character.id, view: "characters" });
     return character.id;
+  },
+
+  completeCharacter: (characterId) => {
+    const character = get().characters.find(
+      (item) => item.id === characterId,
+    );
+    if (!character || !character.name.trim() || character.images.length === 0) {
+      return;
+    }
+    const characters = get().characters.map((item) =>
+      item.id === characterId
+        ? { ...item, isDraft: false, updatedAt: Date.now() }
+        : item,
+    );
+    persistCharacters(characters);
+    set({ characters });
   },
 
   updateCharacter: (characterId, updates) => {
@@ -406,28 +1382,54 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   confirmFormat: () => {
     const { format, aspectRatio } = get();
     if (!format || !aspectRatio) return;
-    set({ step: "idea", view: "home" });
+    updateProject({ step: "workbench" });
+    set({ view: "home" });
   },
 
-  goToStep: (step) => set({ step, view: "home" }),
+  goToStep: (step) => {
+    const currentStep = get().step;
+    // Once the user leaves format, size is locked for image generation — no going back.
+    if (step === "format" && currentStep !== "format") {
+      return;
+    }
+    updateProject({ step });
+    set({ view: "home" });
+  },
 
-  newProject: () =>
+  newProject: () => {
+    const project = createEmptyProject();
+    const projects = [project, ...get().projects];
+    persistProjects(projects);
     set({
+      projectId: project.id,
+      projectName: project.name,
+      projects,
       view: "home",
       step: "format",
       format: null,
       aspectRatio: null,
       ideaText: "",
       referenceImageName: null,
-      brief: {
-        summary: "",
-        visualDirection: "",
-        imagePrompt: "",
-        captionDirection: "",
-      },
+      referenceImageDataUrl: null,
+      brief: emptyBrief(),
+      storyDesign: emptyStoryDesign(),
+      storyMaterials: [],
+      aiMessages: [],
+      planVersions: [],
+      activePlanVersionId: null,
+      activePageId: null,
+      selectedCharacterIds: [],
+      generatedImages: [],
+      imagePages: [],
+      narrationSegments: [],
+      audioVariants: [],
+      selectedAudioVariantId: null,
+      narrationConfirmed: false,
       selectedImageId: null,
       selectedCaption: "",
       voiceoverGenerated: false,
       activeCharacterId: null,
-    }),
-}));
+    });
+  },
+  };
+});

@@ -112,7 +112,55 @@ textarea {
   opacity: 0.045;
 }
 
+.sidebar-delete-action {
+  color: #8f1d1d;
+}
+
+.sidebar-delete-action:hover {
+  background: #fff1f1;
+}
+
+[data-theme="dark"] .sidebar-delete-action {
+  color: #fca5a5;
+}
+
+[data-theme="dark"] .sidebar-delete-action:hover {
+  background: #451a1a;
+}
+
 [data-theme="dark"] .home-watermark {
   filter: grayscale(1) brightness(0) invert(1);
   opacity: 0.06;
+}
+
+.character-portrait-empty {
+  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+  background:
+    radial-gradient(
+      circle at 30% 20%,
+      color-mix(in oklab, var(--primary) 16%, transparent),
+      transparent 55%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in oklab, var(--primary) 12%, var(--muted)) 0%,
+      var(--muted) 48%,
+      color-mix(in oklab, var(--primary) 8%, var(--card)) 100%
+    );
+}
+
+[data-theme="dark"] .character-portrait-empty {
+  border-color: color-mix(in oklab, var(--border) 90%, transparent);
+  background:
+    radial-gradient(
+      circle at 30% 18%,
+      color-mix(in oklab, var(--primary) 22%, transparent),
+      transparent 52%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in oklab, var(--primary) 14%, #2a2a2f) 0%,
+      #232326 46%,
+      color-mix(in oklab, var(--primary) 10%, #1c1c20) 100%
+    );
 }
