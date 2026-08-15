@@ -2,7 +2,6 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/shell/AppShell";
 import { CaptionAudioStep } from "@/components/steps/CaptionAudioStep";
-import { ExportStep } from "@/components/steps/ExportStep";
 import { FormatStep } from "@/components/steps/FormatStep";
 import { StoryboardWorkbench } from "@/components/steps/StoryboardWorkbench";
 import { HistoryView } from "@/components/views/HistoryView";
@@ -38,9 +37,6 @@ export default function App() {
         break;
       case "caption_audio":
         content = <CaptionAudioStep />;
-        break;
-      case "export":
-        content = <ExportStep />;
         break;
     }
   }

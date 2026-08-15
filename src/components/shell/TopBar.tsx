@@ -1,8 +1,10 @@
 import { ArrowLeft, FileDown, Plus, SlidersHorizontal } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ExportDialog } from "@/components/steps/ExportDialog";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/store/projectStore";
 
@@ -29,6 +31,7 @@ export function TopBar({ title }: TopBarProps) {
     (s) => s.characterEditorSession,
   );
   const reduceMotion = useReducedMotion();
+  const [exportOpen, setExportOpen] = useState(false);
   const isEditingCharacter = view === "characters" && Boolean(activeCharacterId);
   const showCreateCharacter =
     view === "characters" && !activeCharacterId && characters.length > 0;
@@ -172,7 +175,7 @@ export function TopBar({ title }: TopBarProps) {
               size="sm"
               className="h-9 rounded-lg px-3"
               disabled={!canExport}
-              onClick={() => goToStep("export")}
+              onClick={() => setExportOpen(true)}
             >
               <FileDown className="size-3.5" />
               <span className="hidden sm:inline">
@@ -184,6 +187,7 @@ export function TopBar({ title }: TopBarProps) {
           </motion.div>
         )}
       </div>
+      <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
     </header>
   );
 }

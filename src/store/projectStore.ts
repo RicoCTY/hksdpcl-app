@@ -1,10 +1,6 @@
 import { create } from "zustand";
 
-export type AgentStep =
-  | "format"
-  | "workbench"
-  | "caption_audio"
-  | "export";
+export type AgentStep = "format" | "workbench" | "caption_audio";
 
 export type ContentFormat = "story" | "post";
 export type AspectRatio = "9:16" | "4:5";
@@ -122,6 +118,7 @@ export interface AudioVariant {
   createdAt: number;
   audioUrl?: string;
   note?: string;
+  script?: string;
 }
 
 function normalizeStep(step: unknown): AgentStep {
@@ -133,12 +130,8 @@ function normalizeStep(step: unknown): AgentStep {
   ) {
     return "workbench";
   }
-  if (
-    step === "format" ||
-    step === "workbench" ||
-    step === "caption_audio" ||
-    step === "export"
-  ) {
+  if (step === "export") return "caption_audio";
+  if (step === "format" || step === "workbench" || step === "caption_audio") {
     return step;
   }
   return "format";
@@ -989,6 +982,7 @@ function normalizeProject(value: unknown): ProjectRecord | null {
             createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
             ...(typeof item.audioUrl === "string" ? { audioUrl: item.audioUrl } : {}),
             ...(typeof item.note === "string" ? { note: item.note } : {}),
+            ...(typeof item.script === "string" ? { script: item.script } : {}),
           }];
         })
       : [],
