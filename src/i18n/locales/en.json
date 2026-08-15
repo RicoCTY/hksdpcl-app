@@ -68,12 +68,6 @@
     "caption_audio": "Narration & audio",
     "export": "Export"
   },
-  "placeholder": {
-    "title": "Next: Input idea",
-    "body": "This step lands in a later phase and you can go back to change the format or start a new project",
-    "back": "Back to format",
-    "comingSoon": "Coming soon"
-  },
   "settings": {
     "title": "Settings",
     "navigation": {
@@ -132,6 +126,14 @@
     "designerName": "RicoCTY",
     "versionLabel": "Version",
     "version": "v{{version}}",
+    "updatesTitle": "App updates",
+    "updatesDescription": "Update checks are only available in the Windows and macOS desktop app",
+    "checkForUpdates": "Check for updates",
+    "checkingUpdates": "Checking…",
+    "upToDate": "You're on the latest version",
+    "updateAvailable": "Version {{version}} is available",
+    "installUpdate": "Install and restart",
+    "updateCheckFailed": "Could not check for updates. Please try again.",
     "backHome": "Back to home"
   },
   "characters": {
@@ -485,6 +487,7 @@
       "downloading": "Downloading…",
       "downloadDescription": "Downloads one ZIP package with the AI images, narration text, and voiceover.",
       "downloadError": "Export failed. Please try again.",
+      "downloadPartial": "The ZIP downloaded, but {{count}} file(s) could not be fetched.",
       "image": "Image",
       "caption": "Caption",
       "audio": "Audio",

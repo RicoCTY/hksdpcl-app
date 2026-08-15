@@ -38,19 +38,6 @@ export function filterMentionableCharacters(
   });
 }
 
-export function insertMention(
-  text: string,
-  mentionStart: number,
-  cursor: number,
-  name: string,
-) {
-  const insertion = `@${name} `;
-  return {
-    text: `${text.slice(0, mentionStart)}${insertion}${text.slice(cursor)}`,
-    cursor: mentionStart + insertion.length,
-  };
-}
-
 export function parseMentionedCharacters(
   text: string,
   characters: Character[],
@@ -81,14 +68,6 @@ export function parseMentionedCharacters(
   }
 
   return [...found.values()];
-}
-
-export function removeMentionFromText(text: string, name: string) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return text
-    .replace(new RegExp(`@${escaped}\\s?`, "g"), "")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/\n{3,}/g, "\n\n");
 }
 
 export function splitMentionParts(

@@ -68,12 +68,6 @@
     "caption_audio": "旁白與語音",
     "export": "匯出"
   },
-  "placeholder": {
-    "title": "下一步：輸入構思",
-    "body": "此步驟將於下一階段實作，你可返回重新選擇格式或建立新專案",
-    "back": "返回格式選擇",
-    "comingSoon": "即將推出"
-  },
   "settings": {
     "title": "設定",
     "navigation": {
@@ -132,6 +126,14 @@
     "designerName": "RicoCTY",
     "versionLabel": "版本",
     "version": "v{{version}}",
+    "updatesTitle": "應用程式更新",
+    "updatesDescription": "檢查更新只適用於 Windows 同 macOS 桌面版",
+    "checkForUpdates": "檢查更新",
+    "checkingUpdates": "檢查中…",
+    "upToDate": "已是最新版本",
+    "updateAvailable": "有新版本 {{version}}",
+    "installUpdate": "安裝並重新啟動",
+    "updateCheckFailed": "無法檢查更新，請稍後再試。",
     "backHome": "返回主頁"
   },
   "characters": {
@@ -485,6 +487,7 @@
       "downloading": "正在下載…",
       "downloadDescription": "將一次下載 ZIP 套件，內含 AI 圖片、旁白文字及配音",
       "downloadError": "匯出失敗，請稍後再試",
+      "downloadPartial": "ZIP 已下載，但有 {{count}} 個檔案無法取得。",
       "image": "圖片",
       "caption": "文案",
       "audio": "音訊",

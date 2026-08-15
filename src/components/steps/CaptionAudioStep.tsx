@@ -227,7 +227,7 @@ Write every narration in ${outputLanguage}.`,
             createdAt: Date.now(),
           } satisfies AudioVariant;
         })
-        .filter((item): item is AudioVariant => Boolean(item));
+        .filter((item): item is NonNullable<typeof item> => item !== null);
 
       if (!nextVariants.length) {
         throw new Error(t("workflow.caption.noNarrationResult"));

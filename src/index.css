@@ -23,7 +23,6 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --radius-3xl: 1.5rem;
-  --shadow-panel: 0 8px 24px rgba(15, 23, 42, 0.04);
   --shadow-soft: 0 4px 16px rgba(15, 23, 42, 0.06);
 }
 
@@ -43,9 +42,6 @@
   --secondary-foreground: #ffffff;
   --ring: #f97316;
   --radius: 0.875rem;
-  --gradient-from: #17171a;
-  --gradient-to: #17171a;
-  --gradient-pink: #17171a;
 }
 
 [data-theme="dark"] {
@@ -63,9 +59,6 @@
   --secondary: #f4f4f5;
   --secondary-foreground: #17171a;
   --ring: #fb923c;
-  --gradient-from: #f4f4f5;
-  --gradient-to: #f4f4f5;
-  --gradient-pink: #f4f4f5;
 }
 
 * {
@@ -178,10 +171,6 @@ summary:focus-visible {
 
 .chat-status-flicker {
   animation: chat-status-flicker 1.4s ease-in-out infinite;
-}
-
-.mention-chip {
-  vertical-align: middle;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -413,33 +413,6 @@ export async function poeResponses({
   return { text, raw: body };
 }
 
-export async function poeResponsesJson<T>(
-  args: Parameters<typeof poeResponses>[0],
-) {
-  const response = await poeResponses(args);
-  return { data: extractJson<T>(response.text), text: response.text };
-}
-
-/** Prefer live web search via Responses API; fall back to chat completions. */
-export async function poeChatJsonWithSearch<T>(
-  args: Parameters<typeof poeChat>[0],
-) {
-  try {
-    return await poeResponsesJson<T>({
-      apiKey: args.apiKey,
-      model: args.model,
-      messages: args.messages,
-      signal: args.signal,
-      maxTokens: args.maxTokens,
-      temperature: args.temperature,
-      webSearch: true,
-    });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw error;
-    return poeChatJson<T>(args);
-  }
-}
-
 /** Chat call tuned for image models that often return media-only content. */
 export async function poeChatImage(
   args: Omit<Parameters<typeof poeChat>[0], "allowEmptyText">,
@@ -677,5 +650,3 @@ export async function poeGenerateSpeech({
   }
   return { audios, text: response.text, raw: response.raw };
 }
-
-export const POE_API_BASE_URL = "https://api.poe.com/v1";

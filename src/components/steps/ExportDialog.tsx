@@ -114,10 +114,12 @@ export function ExportDialog({
   const audioVariants = useProjectStore((s) => s.audioVariants);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState("");
+  const [warning, setWarning] = useState("");
 
   useEffect(() => {
     if (!open) {
       setError("");
+      setWarning("");
       setIsExporting(false);
     }
   }, [open]);
@@ -125,10 +127,12 @@ export function ExportDialog({
   const exportPackage = async () => {
     if (!exportImages.length) return;
     setError("");
+    setWarning("");
     setIsExporting(true);
     const baseName = safeFilename(projectName || "hksdpcl-campaign");
     try {
       const files: Array<{ name: string; data: Uint8Array }> = [];
+      let skippedFiles = 0;
       const variants = audioVariants.filter(
         (variant) => variant.script?.trim() || variant.audioUrl,
       );
@@ -153,7 +157,7 @@ export function ExportDialog({
                 data: new Uint8Array(await response.arrayBuffer()),
               });
             } catch {
-              // Skip audio that can no longer be fetched.
+              skippedFiles += 1;
             }
           }
         }
@@ -173,11 +177,15 @@ export function ExportDialog({
             data: new Uint8Array(await response.arrayBuffer()),
           });
         } catch {
-          // Skip images that can no longer be fetched.
+          skippedFiles += 1;
         }
       }
       if (!files.length) throw new Error("empty export");
       downloadBlob(createZip(files), `${baseName}.zip`);
+      if (skippedFiles) {
+        setWarning(t("workflow.export.downloadPartial", { count: skippedFiles }));
+        return;
+      }
       onClose();
     } catch {
       setError(t("workflow.export.downloadError"));
@@ -214,6 +222,11 @@ export function ExportDialog({
         {error && (
           <p className="mt-3 text-xs leading-relaxed text-red-600 dark:text-red-300">
             {error}
+          </p>
+        )}
+        {warning && (
+          <p className="mt-3 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+            {warning}
           </p>
         )}
         <div className="mt-5 flex justify-end gap-2">
