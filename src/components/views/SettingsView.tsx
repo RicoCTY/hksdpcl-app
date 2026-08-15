@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   Bot,
   ChevronDown,
-  CircleCheck,
   Check,
   Cpu,
   Eye,
@@ -12,10 +11,10 @@ import {
   FileText,
   ImageIcon,
   KeyRound,
-  LoaderCircle,
   Languages,
   Lightbulb,
   Palette,
+  Pencil,
   Plus,
   Trash2,
   Volume2,
@@ -35,7 +34,6 @@ import {
   type ModelSettingKey,
 } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
-import { poeChat, PoeApiError } from "@/lib/poeApi";
 
 type SettingsSectionId = "general" | "models" | "appearance";
 const settingsSectionIds: SettingsSectionId[] = [
@@ -44,35 +42,45 @@ const settingsSectionIds: SettingsSectionId[] = [
   "appearance",
 ];
 
+function maskApiKey(key: string) {
+  if (key.length <= 4) return "••••";
+  return `••••••••${key.slice(-4)}`;
+}
+
 const modelFields: {
   key: ModelSettingKey;
   labelKey: string;
   descriptionKey: string;
   icon: typeof Bot;
+  allowCustom: boolean;
 }[] = [
   {
     key: "lightweight",
     labelKey: "settings.models.lightweightLabel",
     descriptionKey: "settings.models.lightweightDescription",
     icon: Lightbulb,
+    allowCustom: true,
   },
   {
     key: "text",
     labelKey: "settings.models.textLabel",
     descriptionKey: "settings.models.textDescription",
     icon: FileText,
+    allowCustom: true,
   },
   {
     key: "images",
     labelKey: "settings.models.imagesLabel",
     descriptionKey: "settings.models.imagesDescription",
     icon: ImageIcon,
+    allowCustom: false,
   },
   {
     key: "voice",
     labelKey: "settings.models.voiceLabel",
     descriptionKey: "settings.models.voiceDescription",
     icon: Volume2,
+    allowCustom: false,
   },
 ];
 
@@ -91,7 +99,7 @@ function ModelPicker({
   customModels,
   customLabel,
   customInputPlaceholder,
-  addCustomLabel,
+  saveCustomLabel,
   removeCustomLabel,
   modelLabel,
   onChange,
@@ -105,7 +113,7 @@ function ModelPicker({
   customModels: string[];
   customLabel: string;
   customInputPlaceholder: string;
-  addCustomLabel: string;
+  saveCustomLabel: string;
   removeCustomLabel: string;
   modelLabel: string;
   onChange: (value: string) => void;
@@ -144,104 +152,94 @@ function ModelPicker({
     return () => document.removeEventListener("pointerdown", closePicker);
   }, [open]);
 
-  return (
-    <div className="space-y-2">
-      <div ref={pickerRef} className="relative">
-        <button
-          id={id}
-          type="button"
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={`${id}-options`}
-          aria-label={modelLabel}
-          onClick={() => setOpen((current) => !current)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setOpen(false);
-            if (event.key === "ArrowDown") setOpen(true);
-          }}
-          className="flex h-10 w-full items-center justify-between rounded-xl border border-border bg-muted/50 px-3 text-left text-sm text-foreground outline-none transition-colors hover:bg-card focus:border-primary/50 focus:bg-card"
-        >
-          <span className={cn(!isPreset && "text-muted-foreground")}>
-            {selectedLabel}
-          </span>
-          <ChevronDown className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-180")} />
-        </button>
-        {open && (
-          <div
-            id={`${id}-options`}
-            role="listbox"
-            aria-label={modelLabel}
-            className="absolute top-[calc(100%+0.35rem)] right-0 left-0 z-30 overflow-hidden rounded-xl border border-border bg-card p-1.5 shadow-xl"
+  const optionsList = (
+    <>
+      {options.map((option) => {
+        const selected = !isAdding && value === option;
+        return (
+          <button
+            key={option}
+            type="button"
+            role="option"
+            aria-selected={selected}
+            onClick={() => {
+              setIsAdding(false);
+              setNewModel("");
+              onChange(option);
+              setOpen(false);
+            }}
+            className="flex h-9 w-full items-center justify-between rounded-lg px-3 text-left text-sm text-foreground transition-colors hover:bg-muted"
           >
-            {options.map((option) => (
-              <button
-                key={option}
-                type="button"
+            {option}
+            {selected && <Check className="size-4 text-primary" />}
+          </button>
+        );
+      })}
+      {customModelOptions.length > 0 && (
+        <div className="my-1 border-t border-border pt-1">
+          {customModelOptions.map((model) => {
+            const selected = !isAdding && value === model;
+            return (
+              <div
+                key={model}
                 role="option"
-                aria-selected={value === option}
-                onClick={() => {
-                  onChange(option);
-                  setOpen(false);
-                }}
-                className="flex h-9 w-full items-center justify-between rounded-lg px-3 text-left text-sm text-foreground transition-colors hover:bg-muted"
+                aria-selected={selected}
+                className="flex h-9 items-center rounded-lg text-sm text-foreground transition-colors hover:bg-muted"
               >
-                {option}
-                {value === option && <Check className="size-4 text-primary" />}
-              </button>
-            ))}
-            {customModelOptions.length > 0 && (
-              <div className="my-1 border-t border-border pt-1">
-                {customModelOptions.map((model) => (
-                  <div
-                    key={model}
-                    role="option"
-                    aria-selected={value === model}
-                    className="flex h-9 items-center rounded-lg text-sm text-foreground transition-colors hover:bg-muted"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onChange(model);
-                        setOpen(false);
-                      }}
-                      className="flex min-w-0 flex-1 items-center justify-between self-stretch px-3 text-left"
-                    >
-                      <span className="truncate">{model}</span>
-                      {value === model && <Check className="ml-2 size-4 shrink-0 text-primary" />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onRemoveCustomModel(model)}
-                      className="mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                      aria-label={`${removeCustomLabel}: ${model}`}
-                      title={removeCustomLabel}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAdding(false);
+                    setNewModel("");
+                    onChange(model);
+                    setOpen(false);
+                  }}
+                  className="flex min-w-0 flex-1 items-center justify-between self-stretch px-3 text-left"
+                >
+                  <span className="truncate">{model}</span>
+                  {selected && (
+                    <Check className="ml-2 size-4 shrink-0 text-primary" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRemoveCustomModel(model)}
+                  className="mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  aria-label={`${removeCustomLabel}: ${model}`}
+                  title={removeCustomLabel}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
               </div>
-            )}
-            {allowCustomModels && (
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAdding(true);
-                  setNewModel("");
-                  setOpen(false);
-                }}
-                className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-semibold text-primary transition-colors hover:bg-accent"
-              >
-                <Plus className="size-4" />
-                {addCustomLabel}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-      {allowCustomModels && isAdding && (
-        <div className="flex gap-2">
+            );
+          })}
+        </div>
+      )}
+      {allowCustomModels && (
+        <button
+          type="button"
+          role="option"
+          aria-selected={isAdding}
+          onClick={() => {
+            setIsAdding(true);
+            setNewModel("");
+            setOpen(false);
+          }}
+          className="flex h-9 w-full items-center justify-between rounded-lg px-3 text-left text-sm text-foreground transition-colors hover:bg-muted"
+        >
+          {customLabel}
+          {isAdding && <Check className="size-4 text-primary" />}
+        </button>
+      )}
+    </>
+  );
+
+  return (
+    <div className="flex gap-2">
+      <div ref={pickerRef} className="relative min-w-0 flex-1">
+        {isAdding ? (
           <Input
+            id={id}
             autoFocus
             value={newModel}
             onChange={(event) => setNewModel(event.target.value)}
@@ -254,15 +252,75 @@ function ModelPicker({
                 setIsAdding(false);
                 setNewModel("");
               }
+              if (event.key === "ArrowDown") setOpen(true);
             }}
             placeholder={customInputPlaceholder}
             aria-label={customLabel}
+            className="h-10 pr-10"
           />
-          <Button type="button" size="sm" onClick={submitCustomModel} disabled={!newModel.trim()}>
-            <Plus />
-            {addCustomLabel}
-          </Button>
-        </div>
+        ) : (
+          <button
+            id={id}
+            type="button"
+            role="combobox"
+            aria-expanded={open}
+            aria-controls={`${id}-options`}
+            aria-label={modelLabel}
+            onClick={() => setOpen((current) => !current)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setOpen(false);
+              if (event.key === "ArrowDown") setOpen(true);
+            }}
+            className="flex h-10 w-full items-center justify-between rounded-xl border border-border bg-muted/50 px-3 text-left text-sm text-foreground outline-none transition-colors hover:bg-card focus:border-primary/50 focus:bg-card"
+          >
+            <span className={cn(!isPreset && "text-muted-foreground")}>
+              {selectedLabel}
+            </span>
+            <ChevronDown
+              className={cn(
+                "size-4 text-muted-foreground transition-transform",
+                open && "rotate-180",
+              )}
+            />
+          </button>
+        )}
+        {isAdding && (
+          <button
+            type="button"
+            aria-label={modelLabel}
+            aria-expanded={open}
+            onClick={() => setOpen((current) => !current)}
+            className="absolute top-1/2 right-2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <ChevronDown
+              className={cn(
+                "size-4 transition-transform",
+                open && "rotate-180",
+              )}
+            />
+          </button>
+        )}
+        {open && (
+          <div
+            id={`${id}-options`}
+            role="listbox"
+            aria-label={modelLabel}
+            className="absolute top-[calc(100%+0.35rem)] right-0 left-0 z-30 overflow-hidden rounded-xl border border-border bg-card p-1.5 shadow-xl"
+          >
+            {optionsList}
+          </div>
+        )}
+      </div>
+      {isAdding && (
+        <Button
+          type="button"
+          size="sm"
+          className="h-10 shrink-0"
+          onClick={submitCustomModel}
+          disabled={!newModel.trim()}
+        >
+          {saveCustomLabel}
+        </Button>
       )}
     </div>
   );
@@ -309,9 +367,9 @@ export function SettingsView() {
   const addCustomModel = useProjectStore((s) => s.addCustomModel);
   const removeCustomModel = useProjectStore((s) => s.removeCustomModel);
   const [showPoeApiKey, setShowPoeApiKey] = useState(false);
-  const [isTestingConnection, setIsTestingConnection] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle");
-  const [connectionError, setConnectionError] = useState("");
+  const [revealStoredApiKey, setRevealStoredApiKey] = useState(false);
+  const [isEditingApiKey, setIsEditingApiKey] = useState(false);
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [activeSection, setActiveSection] =
     useState<SettingsSectionId>("general");
   const settingsRootRef = useRef<HTMLDivElement>(null);
@@ -368,40 +426,6 @@ export function SettingsView() {
     };
   }, []);
 
-  const testConnection = async () => {
-    setConnectionStatus("idle");
-    setConnectionError("");
-    setIsTestingConnection(true);
-    try {
-      // Verify the lightweight probe and the text model used by the agent loop.
-      await poeChat({
-        apiKey: poeApiKey,
-        model: modelSettings.lightweight || "gpt-4.1-mini",
-        maxTokens: 16,
-        temperature: 0,
-        messages: [{ role: "user", content: "Reply with OK only." }],
-      });
-      if (
-        modelSettings.text &&
-        modelSettings.text !== modelSettings.lightweight
-      ) {
-        await poeChat({
-          apiKey: poeApiKey,
-          model: modelSettings.text,
-          maxTokens: 16,
-          temperature: 0,
-          messages: [{ role: "user", content: "Reply with OK only." }],
-        });
-      }
-      setConnectionStatus("success");
-    } catch (caught) {
-      setConnectionStatus("error");
-      setConnectionError(caught instanceof PoeApiError || caught instanceof Error ? caught.message : t("settings.connectionFailed"));
-    } finally {
-      setIsTestingConnection(false);
-    }
-  };
-
   const scrollToSection = (section: SettingsSectionId) => {
     setActiveSection(section);
     document
@@ -431,7 +455,7 @@ export function SettingsView() {
   return (
     <div
       ref={settingsRootRef}
-      className="mx-auto flex h-full w-full max-w-6xl flex-col px-6 py-8 xl:flex-row xl:gap-14 xl:px-10"
+      className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 py-8 xl:flex-row xl:gap-14 xl:px-10"
     >
       <aside className="mb-9 shrink-0 xl:mb-0 xl:w-52">
         <div className="mb-6">
@@ -495,45 +519,54 @@ export function SettingsView() {
               >
                 {t("settings.poeLabel")}
               </label>
-              <div className="relative mt-2">
-                <Input
+              <div className="mt-2 flex items-center gap-2">
+                <div
                   id="poe-api-key"
-                  type={showPoeApiKey ? "text" : "password"}
-                  value={poeApiKey}
-                  onChange={(event) => setPoeApiKey(event.target.value)}
-                  placeholder={t("settings.poePlaceholder")}
-                  autoComplete="off"
-                  className="pr-12 font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPoeApiKey((visible) => !visible)}
-                  className="absolute top-1/2 right-2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  aria-label={
-                    showPoeApiKey
-                      ? t("settings.hideApiKey")
-                      : t("settings.showApiKey")
-                  }
+                  className="relative flex h-11 min-w-0 flex-1 items-center rounded-xl border border-border bg-muted/60 px-3.5 pr-12 font-mono text-sm"
                 >
-                  {showPoeApiKey ? (
-                    <EyeOff className="size-4" />
+                  {poeApiKey ? (
+                    <span className="truncate text-foreground">
+                      {revealStoredApiKey ? poeApiKey : maskApiKey(poeApiKey)}
+                    </span>
                   ) : (
-                    <Eye className="size-4" />
+                    <span className="text-muted-foreground">
+                      {t("settings.notConfigured")}
+                    </span>
                   )}
-                </button>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Check className="size-3.5 text-primary" />
-                  {poeApiKey ? t("settings.savedLocally") : t("settings.notConfigured")}
+                  {poeApiKey && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRevealStoredApiKey((visible) => !visible)
+                      }
+                      className="absolute top-1/2 right-2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      aria-label={
+                        revealStoredApiKey
+                          ? t("settings.hideApiKey")
+                          : t("settings.showApiKey")
+                      }
+                    >
+                      {revealStoredApiKey ? (
+                        <EyeOff className="size-4" />
+                      ) : (
+                        <Eye className="size-4" />
+                      )}
+                    </button>
+                  )}
                 </div>
-                <Button variant="outline" size="sm" className="rounded-full" disabled={!poeApiKey || isTestingConnection} onClick={() => void testConnection()}>
-                  {isTestingConnection ? <LoaderCircle className="animate-spin" /> : <CircleCheck />}
-                  {isTestingConnection ? t("settings.testingConnection") : t("settings.testConnection")}
+                <Button
+                  variant="outline"
+                  className="h-11 shrink-0 rounded-xl px-3"
+                  onClick={() => {
+                    setApiKeyDraft(poeApiKey);
+                    setShowPoeApiKey(false);
+                    setIsEditingApiKey(true);
+                  }}
+                >
+                  <Pencil className="size-3.5" />
+                  {t("settings.editApiKey")}
                 </Button>
               </div>
-              {connectionStatus === "success" && <p className="mt-3 text-xs font-semibold text-primary">{t("settings.connectionSuccess")}</p>}
-              {connectionStatus === "error" && <p className="mt-3 text-xs leading-relaxed text-red-600 dark:text-red-300">{connectionError || t("settings.connectionFailed")}</p>}
             </CardContent>
           </Card>
           </SettingsSection>
@@ -551,6 +584,7 @@ export function SettingsView() {
                   labelKey,
                   descriptionKey,
                   icon: Icon,
+                  allowCustom,
                 }) => (
                   <div
                     key={key}
@@ -580,11 +614,11 @@ export function SettingsView() {
                         id={`model-${key}`}
                         value={modelSettings[key]}
                         options={modelOptions[key]}
-                        allowCustomModels
+                        allowCustomModels={allowCustom}
                         customModels={modelSettings.customModels?.[key] ?? []}
                         customLabel={t("settings.customModel")}
                         customInputPlaceholder={t("settings.customModelPlaceholder")}
-                        addCustomLabel={t("settings.addCustomModel")}
+                        saveCustomLabel={t("settings.saveCustomModel")}
                         removeCustomLabel={t("settings.removeCustomModel")}
                         modelLabel={t("settings.modelInputLabel")}
                         onChange={(value) => setModelSetting(key, value)}
@@ -595,10 +629,6 @@ export function SettingsView() {
                   </div>
                 ),
               )}
-            </div>
-            <div className="flex items-center gap-2 border-t border-border px-5 py-3 text-xs text-muted-foreground">
-              <Check className="size-3.5 text-primary" />
-              {t("settings.modelSavedLocally")}
             </div>
           </Card>
           </SettingsSection>
@@ -685,6 +715,81 @@ export function SettingsView() {
           </Button>
         </div>
       </div>
+
+      {isEditingApiKey && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/35 px-6 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsEditingApiKey(false);
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-api-key-title"
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-[var(--shadow-soft)]"
+          >
+            <h2
+              id="edit-api-key-title"
+              className="text-lg font-bold text-foreground"
+            >
+              {t("settings.editApiKeyTitle")}
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              {t("settings.editApiKeyDescription")}
+            </p>
+            <div className="relative mt-5">
+              <Input
+                id="poe-api-key-draft"
+                type={showPoeApiKey ? "text" : "password"}
+                value={apiKeyDraft}
+                onChange={(event) => setApiKeyDraft(event.target.value)}
+                placeholder={t("settings.poePlaceholder")}
+                autoComplete="off"
+                autoFocus
+                className="pr-12 font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPoeApiKey((visible) => !visible)}
+                className="absolute top-1/2 right-2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label={
+                  showPoeApiKey
+                    ? t("settings.hideApiKey")
+                    : t("settings.showApiKey")
+                }
+              >
+                {showPoeApiKey ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
+              </button>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setIsEditingApiKey(false)}
+              >
+                {t("settings.cancelApiKey")}
+              </Button>
+              <Button
+                disabled={!apiKeyDraft.trim()}
+                onClick={() => {
+                  setPoeApiKey(apiKeyDraft.trim());
+                  setRevealStoredApiKey(false);
+                  setIsEditingApiKey(false);
+                }}
+              >
+                {t("settings.saveApiKey")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

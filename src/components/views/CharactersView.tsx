@@ -522,11 +522,9 @@ function CharacterEditor({ character }: { character: Character }) {
                   className="size-full object-cover"
                 />
               ) : (
-                <div className="flex size-full flex-col items-center justify-center px-6 text-center">
-                  <span className="grid size-12 place-items-center rounded-xl bg-card text-primary shadow-sm">
-                    <ImagePlus className="size-5" />
-                  </span>
-                  <span className="mt-4 text-xs text-muted-foreground">
+                <div className="flex size-full flex-col items-center justify-center gap-2 px-6 text-muted-foreground">
+                  <ImagePlus className="size-5 opacity-60" />
+                  <span className="text-[12px] font-medium">
                     {isReadingImages
                       ? t("characters.readingImages")
                       : t("characters.dropImages")}
@@ -586,7 +584,12 @@ function CharacterEditor({ character }: { character: Character }) {
                     <button
                       type="button"
                       onClick={() => setActivePreviewId(image.id)}
-                      className="size-16 cursor-pointer overflow-hidden rounded-xl bg-muted"
+                      className={cn(
+                        "size-16 cursor-pointer overflow-hidden rounded-xl bg-muted outline-2 outline-offset-2",
+                        selected
+                          ? "outline-primary"
+                          : "outline-transparent group-hover:outline-foreground/20",
+                      )}
                       aria-label={image.name}
                     >
                       <img
@@ -595,15 +598,6 @@ function CharacterEditor({ character }: { character: Character }) {
                         className="size-full object-cover"
                       />
                     </button>
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        "pointer-events-none absolute -inset-1 rounded-[0.9rem] border-2",
-                        selected
-                          ? "border-primary"
-                          : "border-transparent group-hover:border-foreground/20",
-                      )}
-                    />
                     <button
                       type="button"
                       onClick={() => {

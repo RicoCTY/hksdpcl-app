@@ -48,23 +48,24 @@ export default function App() {
   const contentKey = view === "home" ? `home-${step}` : view;
   const isWorkflowSwitch =
     view === "home" && (step === "workbench" || step === "caption_audio");
+  const isFixedHeightView = isWorkflowSwitch || view === "settings";
 
   return (
     <AppShell title={title}>
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={contentKey}
-          className={isWorkflowSwitch ? "h-full min-h-0" : undefined}
+          className={isFixedHeightView ? "h-full min-h-0" : undefined}
           initial={
             reduceMotion
               ? false
-              : { opacity: 0, y: isWorkflowSwitch ? 10 : 0 }
+              : { opacity: 0, y: isFixedHeightView ? 10 : 0 }
           }
           animate={{ opacity: 1, y: 0 }}
           exit={
             reduceMotion
               ? undefined
-              : { opacity: 0, y: isWorkflowSwitch ? -8 : 0 }
+              : { opacity: 0, y: isFixedHeightView ? -8 : 0 }
           }
           transition={
             reduceMotion
