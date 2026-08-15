@@ -94,10 +94,65 @@ Project drafts, mascot records, and model settings are currently kept locally in
 
 The Poe API key is masked in the UI, but this web-first build still uses local web storage. Before a public multi-user release, move key storage to Tauri secure storage or use Poe OAuth / a backend token broker. Never ship a shared Poe API key in the frontend.
 
-## Tauri 2 release checklist
+## CI, download, and updates
 
-- Install Rust and Cargo on the build machine, then run `npm run tauri build`.
-- Build separately on macOS and Windows, or use a tested CI matrix.
-- Sign and notarize the macOS app; sign the Windows installer to reduce Gatekeeper and SmartScreen warnings.
-- Add a signed Tauri updater manifest before enabling in-app updates.
-- Review the CSP and capabilities whenever adding a native plugin. The current CSP explicitly allows the Poe API and remote generated-image URLs.
+This is a single-operator desktop app. Builds are unsigned. GitHub Actions does the packaging; you publish the Release so it can be downloaded.
+
+### Everyday CI (no installer)
+
+Push to `main` or open a pull request. The **CI** workflow runs `npm run check` only.
+
+It does **not** produce a `.dmg` or `.exe`. Check the result at [Actions](https://github.com/RicoCTY/hksdpcl-app/actions).
+
+### First downloadable build
+
+Version lives in two files and must stay in sync:
+
+- `package.json`
+- `src-tauri/tauri.conf.json`
+
+Both are currently `0.1.0`. To ship that version:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The **Release** workflow then builds:
+
+- macOS Apple Silicon `.dmg`
+- macOS Intel `.dmg`
+- Windows NSIS `.exe`
+
+When it finishes, GitHub creates a **draft** at [Releases](https://github.com/RicoCTY/hksdpcl-app/releases). Open the `v0.1.0` draft and click **Publish release**. Until you publish, there is nothing to download and Settings cannot see a newer version.
+
+Download page after publish:
+
+https://github.com/RicoCTY/hksdpcl-app/releases/latest
+
+First launch (unsigned):
+
+- macOS: right-click the app → Open → Open
+- Windows: SmartScreen → More info → Run anyway
+
+### Later updates
+
+1. Bump the version in **both** `package.json` and `src-tauri/tauri.conf.json` (for example `0.1.0` → `0.2.0`).
+2. Commit and push to `main`.
+3. Tag and push the same version:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+4. Wait for the Release workflow, then **Publish** the new draft.
+
+In the installed app: Settings → Help → **Check for updates**.
+
+- Current version is the same as or newer than the latest **published** GitHub Release → “You're on the latest version”
+- GitHub has a newer tag (for example `v0.2.0`) → “Version 0.2.0 is available” → **Install and restart** opens that Release page so you can download and install again
+
+Drafts do not count. If you forget to publish, the app will keep saying it is up to date.
+
+There is no silent in-app overlay install. Update means download the new installer and replace the old app.
