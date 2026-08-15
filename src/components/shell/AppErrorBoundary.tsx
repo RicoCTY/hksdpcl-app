@@ -37,7 +37,7 @@ export class AppErrorBoundary extends Component<
           <button
             type="button"
             onClick={this.reloadApplication}
-            className="mt-6 h-11 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="mt-6 h-11 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground outline-none transition-colors hover:brightness-105"
           >
             重新載入
           </button>

@@ -3,27 +3,28 @@ import {
   Copy,
   GripVertical,
   LoaderCircle,
-  Paperclip,
   Plus,
   RefreshCw,
-  Send,
-  Sparkles,
   Trash2,
-  UserRound,
   X,
 } from "lucide-react";
 import {
   useMemo,
+  useRef,
   useState,
   type DragEvent,
   type ChangeEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import {
+  ChatPanel,
+  type ChatAttachment,
+} from "@/components/workbench/ChatPanel";
+import { DesignSheet } from "@/components/workbench/DesignSheet";
 import { cn } from "@/lib/utils";
 import { PoeApiError } from "@/lib/poeApi";
 import {
-  DESIGN_FIELDS,
   applyAgentActions,
   generateStoryboardPageImage,
   runStoryboardAgentTurn,
@@ -31,18 +32,11 @@ import {
 } from "@/lib/storyboardAgent";
 import {
   useProjectStore,
+  type AgentReceipt,
   type AiMessage,
   type ImagePage,
   type StoryMaterial,
 } from "@/store/projectStore";
-
-interface ChatAttachment {
-  name: string;
-  type: string;
-  dataUrl?: string;
-  text?: string;
-  kind: StoryMaterial["kind"];
-}
 
 function readAsDataUrl(file: File) {
   return new Promise<string | null>((resolve) => {
@@ -79,7 +73,6 @@ export function StoryboardWorkbench() {
   const referenceImageDataUrl = useProjectStore((s) => s.referenceImageDataUrl);
   const characters = useProjectStore((s) => s.characters);
   const selectedCharacterIds = useProjectStore((s) => s.selectedCharacterIds);
-  const storyDesign = useProjectStore((s) => s.storyDesign);
   const imagePages = useProjectStore((s) => s.imagePages);
   const generatedImages = useProjectStore((s) => s.generatedImages);
   const aiMessages = useProjectStore((s) => s.aiMessages);
@@ -87,10 +80,11 @@ export function StoryboardWorkbench() {
   const setIdeaText = useProjectStore((s) => s.setIdeaText);
   const setAiMessages = useProjectStore((s) => s.setAiMessages);
   const setStoryDesign = useProjectStore((s) => s.setStoryDesign);
-  const setStoryDesignField = useProjectStore((s) => s.setStoryDesignField);
   const addStoryMaterial = useProjectStore((s) => s.addStoryMaterial);
   const setReferenceImage = useProjectStore((s) => s.setReferenceImage);
-  const toggleSelectedCharacter = useProjectStore((s) => s.toggleSelectedCharacter);
+  const toggleSelectedCharacter = useProjectStore(
+    (s) => s.toggleSelectedCharacter,
+  );
   const setImagePages = useProjectStore((s) => s.setImagePages);
   const updateImagePage = useProjectStore((s) => s.updateImagePage);
   const addImagePage = useProjectStore((s) => s.addImagePage);
@@ -106,6 +100,11 @@ export function StoryboardWorkbench() {
   const [generatingPageId, setGeneratingPageId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
+  const designOpen = useProjectStore((s) => s.workbenchDesignOpen);
+  const setDesignOpen = useProjectStore((s) => s.setWorkbenchDesignOpen);
+  const abortRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef(0);
 
   const availableCharacters = useMemo(
     () => characters.filter((character) => !character.isDraft),
@@ -113,6 +112,10 @@ export function StoryboardWorkbench() {
   );
 
   const activePage = imagePages.find((page) => page.id === activePageId) ?? null;
+  const activePageNumber = activePage
+    ? imagePages.findIndex((page) => page.id === activePage.id) + 1
+    : null;
+
   const pageImage = (page: ImagePage) => {
     const selected =
       page.selectedImageId &&
@@ -135,20 +138,23 @@ export function StoryboardWorkbench() {
     untitledPage: (number) => t("workflow.workbench.untitledPage", { number }),
   });
 
-  const appendAssistantReply = (reply: string) => {
+  const appendAssistantReply = (reply: string, receipts?: AgentReceipt[]) => {
     const assistantMessage: AiMessage = {
       id: `assistant-${Date.now()}`,
       role: "assistant",
       content: reply,
       createdAt: Date.now(),
+      ...(receipts?.length ? { receipts } : {}),
     };
     setAiMessages(
-      [...useProjectStore.getState().aiMessages, assistantMessage].slice(-20),
+      [...useProjectStore.getState().aiMessages, assistantMessage].slice(-40),
     );
   };
 
-  const generatePageImage = async (pageId: string) => {
-    const page = useProjectStore.getState().imagePages.find((item) => item.id === pageId);
+  const generatePageImage = async (pageId: string, runId?: number) => {
+    const page = useProjectStore
+      .getState()
+      .imagePages.find((item) => item.id === pageId);
     if (!page?.imagePrompt.trim()) {
       setError(t("workflow.workbench.missingPrompt"));
       return;
@@ -159,7 +165,8 @@ export function StoryboardWorkbench() {
       const state = useProjectStore.getState();
       const liveSelectedCharacters = state.characters.filter(
         (character) =>
-          !character.isDraft && state.selectedCharacterIds.includes(character.id),
+          !character.isDraft &&
+          state.selectedCharacterIds.includes(character.id),
       );
       const results = await generateStoryboardPageImage({
         apiKey: state.poeApiKey,
@@ -170,6 +177,7 @@ export function StoryboardWorkbench() {
         selectedCharacters: liveSelectedCharacters,
         referenceImageDataUrl: state.referenceImageDataUrl,
       });
+      if (runId != null && runId !== runIdRef.current) return;
       if (!results.length) throw new Error(t("workflow.images.noImageResult"));
 
       const image = {
@@ -192,29 +200,49 @@ export function StoryboardWorkbench() {
       });
       setSelectedImageId(image.id);
     } catch (caught) {
+      if (runId != null && runId !== runIdRef.current) return;
       setError(
         caught instanceof PoeApiError || caught instanceof Error
           ? caught.message
           : t("workflow.images.agentError"),
       );
     } finally {
-      setGeneratingPageId(null);
+      if (runId == null || runId === runIdRef.current) {
+        setGeneratingPageId(null);
+      }
     }
   };
 
-  const runChatPlan = async (seed: string, attachmentHint?: ChatAttachment) => {
+  const cancelGeneration = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    runIdRef.current += 1;
+    setIsGenerating(false);
+    setGeneratingPageId(null);
+  };
+
+  const runChatPlan = async (
+    seed: string,
+    attachmentHint?: ChatAttachment,
+  ) => {
     setError("");
     setIsGenerating(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const runId = ++runIdRef.current;
+
     try {
       const state = useProjectStore.getState();
       const liveSelectedCharacters = state.characters.filter(
         (character) =>
-          !character.isDraft && state.selectedCharacterIds.includes(character.id),
+          !character.isDraft &&
+          state.selectedCharacterIds.includes(character.id),
       );
 
       const response = await runStoryboardAgentTurn({
         apiKey: state.poeApiKey,
         textModel: state.modelSettings.text,
+        signal: controller.signal,
         context: {
           language: i18n.language,
           format: state.format,
@@ -231,25 +259,54 @@ export function StoryboardWorkbench() {
         },
       });
 
+      if (runId !== runIdRef.current) return;
+
       const applied = applyAgentActions(
         response.data,
         storeBridge(),
         t("workflow.workbench.defaultReply"),
       );
-      appendAssistantReply(applied.reply);
+      appendAssistantReply(applied.reply, applied.receipts);
       if (!state.ideaText.trim()) setIdeaText(seed);
 
       for (const pageId of applied.pagesToGenerate) {
-        await generatePageImage(pageId);
+        if (runId !== runIdRef.current) return;
+        const pageIndex =
+          useProjectStore
+            .getState()
+            .imagePages.findIndex((page) => page.id === pageId) + 1;
+        const currentMessages = useProjectStore.getState().aiMessages;
+        const last = currentMessages[currentMessages.length - 1];
+        if (last?.role === "assistant") {
+          const generatingReceipt: AgentReceipt = {
+            type: "generating_image",
+            pageNumber: pageIndex > 0 ? pageIndex : 1,
+          };
+          setAiMessages([
+            ...currentMessages.slice(0, -1),
+            {
+              ...last,
+              receipts: [...(last.receipts ?? []), generatingReceipt],
+            },
+          ]);
+        }
+        await generatePageImage(pageId, runId);
       }
     } catch (caught) {
+      if (runId !== runIdRef.current) return;
+      if (caught instanceof DOMException && caught.name === "AbortError") {
+        return;
+      }
       setError(
         caught instanceof PoeApiError || caught instanceof Error
           ? caught.message
           : t("workflow.workbench.agentError"),
       );
     } finally {
-      setIsGenerating(false);
+      if (runId === runIdRef.current) {
+        setIsGenerating(false);
+        abortRef.current = null;
+      }
     }
   };
 
@@ -280,8 +337,15 @@ export function StoryboardWorkbench() {
         ...(attachment.dataUrl ? { dataUrl: attachment.dataUrl } : {}),
         ...(attachment.text ? { text: attachment.text } : {}),
       });
-      if (attachment.kind === "image" && attachment.dataUrl && !referenceImageDataUrl) {
-        setReferenceImage({ name: attachment.name, dataUrl: attachment.dataUrl });
+      if (
+        attachment.kind === "image" &&
+        attachment.dataUrl &&
+        !referenceImageDataUrl
+      ) {
+        setReferenceImage({
+          name: attachment.name,
+          dataUrl: attachment.dataUrl,
+        });
       }
     }
 
@@ -301,6 +365,7 @@ export function StoryboardWorkbench() {
         createdAt: Date.now(),
       },
     ]);
+    setDesignOpen(false);
     await runChatPlan(redesignPrompt);
   };
 
@@ -343,49 +408,23 @@ export function StoryboardWorkbench() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] min-h-[36rem] flex-col">
-      <div className="grid min-h-0 flex-1 gap-3 px-3 py-3 lg:grid-cols-[minmax(0,1fr)_280px] xl:grid-cols-[minmax(0,1fr)_300px]">
-        {/* Center: storyboard canvas */}
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] bg-muted/30">
-          <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
-            <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-              <Clapperboard className="size-4 text-primary" />
-              {t("workflow.workbench.canvasTitle")}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-full"
-              onClick={() =>
-                addImagePage({
-                  title: t("workflow.workbench.untitledPage", {
-                    number: imagePages.length + 1,
-                  }),
-                })
-              }
-            >
-              <Plus />
-              {t("workflow.workbench.addPage")}
-            </Button>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+    <div className="flex h-full min-h-0">
+      <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div className="h-full overflow-y-auto p-5 sm:p-6">
             {!imagePages.length ? (
-              <div className="grid min-h-72 place-items-center text-center">
-                <div>
-                  <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-card text-primary shadow-[var(--shadow-soft)]">
-                    <Sparkles className="size-6" />
-                  </div>
-                  <p className="mt-4 text-lg font-extrabold text-foreground">
+              <div className="grid min-h-[60vh] place-items-center text-center">
+                <div className="max-w-sm">
+                  <p className="text-[15px] font-medium text-foreground">
                     {t("workflow.workbench.emptyTitle")}
                   </p>
-                  <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                  <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
                     {t("workflow.workbench.emptyDescription")}
                   </p>
                 </div>
               </div>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {imagePages.map((page, index) => {
                   const image = pageImage(page);
                   const selected = activePageId === page.id;
@@ -398,17 +437,17 @@ export function StoryboardWorkbench() {
                       onDrop={onDrop(index)}
                       onClick={() => setActivePageId(page.id)}
                       className={cn(
-                        "group cursor-pointer overflow-hidden rounded-2xl bg-card shadow-[var(--shadow-soft)] ring-1 transition-shadow",
+                        "group cursor-pointer overflow-hidden rounded-xl border bg-card transition-colors",
                         selected
-                          ? "ring-primary/40"
-                          : "ring-border/70 hover:ring-orange-200",
+                          ? "border-primary/45"
+                          : "border-border/80 hover:border-border",
                       )}
                     >
                       <div
                         className={cn(
                           "relative bg-muted",
                           format === "post" ? "aspect-[4/5]" : "aspect-[9/16]",
-                          "max-h-56 w-full",
+                          "max-h-52 w-full",
                         )}
                       >
                         {image ? (
@@ -419,17 +458,17 @@ export function StoryboardWorkbench() {
                           />
                         ) : (
                           <div className="grid size-full place-items-center text-muted-foreground">
-                            <Clapperboard className="size-6 opacity-50" />
+                            <Clapperboard className="size-5 opacity-35" />
                           </div>
                         )}
-                        <div className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 text-[11px] font-bold">
-                          <GripVertical className="size-3 opacity-50" />
+                        <div className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-md bg-background/90 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-foreground/80">
+                          <GripVertical className="size-3 opacity-40" />
                           {index + 1}
                         </div>
                       </div>
-                      <div className="space-y-2 p-3">
+                      <div className="space-y-1.5 p-3">
                         <div className="flex items-start justify-between gap-2">
-                          <h3 className="text-sm font-bold text-foreground">
+                          <h3 className="text-[13px] font-medium text-foreground">
                             {page.title ||
                               t("workflow.workbench.untitledPage", {
                                 number: index + 1,
@@ -441,17 +480,19 @@ export function StoryboardWorkbench() {
                               event.stopPropagation();
                               removeImagePage(page.id);
                             }}
-                            className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground"
+                            className="text-muted-foreground opacity-0 outline-none transition-opacity group-hover:opacity-100 hover:text-foreground"
                             aria-label={t("workflow.workbench.deletePage")}
                           >
                             <Trash2 className="size-3.5" />
                           </button>
                         </div>
-                        <p className="line-clamp-2 text-xs text-muted-foreground">
-                          {page.scene || page.idea || t("workflow.workbench.noScene")}
+                        <p className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+                          {page.scene ||
+                            page.idea ||
+                            t("workflow.workbench.noScene")}
                         </p>
                         {page.dialogue && (
-                          <p className="line-clamp-2 rounded-lg bg-muted/60 px-2 py-1.5 text-[11px] text-foreground">
+                          <p className="line-clamp-2 text-[11px] leading-relaxed text-foreground/75">
                             “{page.dialogue}”
                           </p>
                         )}
@@ -459,274 +500,186 @@ export function StoryboardWorkbench() {
                     </article>
                   );
                 })}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    addImagePage({
+                      title: t("workflow.workbench.untitledPage", {
+                        number: imagePages.length + 1,
+                      }),
+                    })
+                  }
+                  className={cn(
+                    "flex min-h-48 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/90 bg-transparent text-muted-foreground outline-none transition-colors hover:border-foreground/25 hover:bg-muted/30 hover:text-foreground",
+                    format === "post" ? "aspect-[4/5]" : "aspect-[9/16]",
+                    "max-h-52",
+                  )}
+                >
+                  <Plus className="size-5 opacity-60" />
+                  <span className="text-[12px] font-medium">
+                    {t("workflow.workbench.addPage")}
+                  </span>
+                </button>
               </div>
             )}
           </div>
 
-          {/* Page detail modal */}
-          {activePage && (
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 backdrop-blur-[2px]"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="page-detail-title"
-              onClick={(event) => {
-                if (event.target === event.currentTarget) setActivePageId(null);
-              }}
-            >
-              <div className="relative flex max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[1.75rem] border border-border bg-card shadow-2xl">
-                <div className="flex items-center justify-between gap-2 border-b border-border/70 px-4 py-3 sm:px-6">
-                  <p id="page-detail-title" className="text-base font-bold">
+          <DesignSheet
+            open={designOpen}
+            onClose={() => setDesignOpen(false)}
+            onRedesign={() => void redesignAll()}
+            isGenerating={isGenerating}
+          />
+        </div>
+
+        {activePage && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4 backdrop-blur-[1px]"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="page-detail-title"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setActivePageId(null);
+            }}
+          >
+            <div className="relative flex max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+              <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3 sm:px-5">
+                <p id="page-detail-title" className="text-[15px] font-medium">
                   {t("workflow.workbench.pageDetail")}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setActivePageId(null)}
-                    className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    aria-label={t("workflow.workbench.closePageDetail")}
-                  >
-                    <X className="size-4" />
-                  </button>
-                </div>
-                <div className="min-h-0 overflow-y-auto p-4 sm:p-6">
-                  <div
-                    className={cn(
-                      "grid gap-4",
-                      activePageImage
-                        ? "lg:grid-cols-[220px_minmax(0,1fr)]"
-                        : "",
-                    )}
-                  >
-                    {activePageImage && (
-                      <div className="flex min-h-56 items-center justify-center rounded-2xl bg-muted/50 p-3">
-                        <img
-                          src={activePageImage.url}
-                          alt={activePageImage.alt}
-                          className="max-h-72 w-full rounded-xl object-contain"
-                        />
-                      </div>
-                    )}
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {(
-                        [
-                          ["title", t("workflow.workbench.fields.title")],
-                          ["scene", t("workflow.workbench.fields.scene")],
-                          ["characters", t("workflow.workbench.fields.characters")],
-                          ["dialogue", t("workflow.workbench.fields.dialogue")],
-                          ["suggestedText", t("workflow.workbench.fields.suggestedText")],
-                          ["composition", t("workflow.workbench.fields.composition")],
-                          ["imagePrompt", t("workflow.workbench.fields.imagePrompt")],
-                        ] as Array<[keyof ImagePage, string]>
-                      ).map(([field, label]) => (
-                        <label
-                          key={field}
-                          className={cn(
-                            "block text-xs",
-                            field === "imagePrompt" ? "sm:col-span-2" : "",
-                          )}
-                        >
-                          <span className="font-semibold text-muted-foreground">
-                            {label}
-                          </span>
-                          <textarea
-                            value={String(activePage[field] ?? "")}
-                            rows={field === "imagePrompt" ? 3 : 2}
-                            onChange={(event) =>
-                              updateImagePage(activePage.id, {
-                                [field]: event.target.value,
-                              } as Partial<ImagePage>)
-                            }
-                            className="mt-1 w-full resize-y rounded-xl border border-transparent bg-muted/50 px-3 py-2 text-sm outline-none focus:border-border focus:bg-background"
-                          />
-                        </label>
-                      ))}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActivePageId(null)}
+                  className="rounded-md p-1.5 text-muted-foreground outline-none hover:bg-muted hover:text-foreground"
+                  aria-label={t("workflow.workbench.closePageDetail")}
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+              <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
+                <div
+                  className={cn(
+                    "grid gap-4",
+                    activePageImage
+                      ? "lg:grid-cols-[220px_minmax(0,1fr)]"
+                      : "",
+                  )}
+                >
+                  {activePageImage && (
+                    <div className="flex min-h-56 items-center justify-center rounded-xl bg-muted/50 p-3">
+                      <img
+                        src={activePageImage.url}
+                        alt={activePageImage.alt}
+                        className="max-h-72 w-full rounded-lg object-contain"
+                      />
                     </div>
+                  )}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {(
+                      [
+                        ["title", t("workflow.workbench.fields.title")],
+                        ["scene", t("workflow.workbench.fields.scene")],
+                        [
+                          "characters",
+                          t("workflow.workbench.fields.characters"),
+                        ],
+                        ["dialogue", t("workflow.workbench.fields.dialogue")],
+                        [
+                          "suggestedText",
+                          t("workflow.workbench.fields.suggestedText"),
+                        ],
+                        [
+                          "composition",
+                          t("workflow.workbench.fields.composition"),
+                        ],
+                        [
+                          "imagePrompt",
+                          t("workflow.workbench.fields.imagePrompt"),
+                        ],
+                      ] as Array<[keyof ImagePage, string]>
+                    ).map(([field, label]) => (
+                      <label
+                        key={field}
+                        className={cn(
+                          "block text-xs",
+                          field === "imagePrompt" ? "sm:col-span-2" : "",
+                        )}
+                      >
+                        <span className="font-medium text-muted-foreground">
+                          {label}
+                        </span>
+                        <textarea
+                          value={String(activePage[field] ?? "")}
+                          rows={field === "imagePrompt" ? 3 : 2}
+                          onChange={(event) =>
+                            updateImagePage(activePage.id, {
+                              [field]: event.target.value,
+                            } as Partial<ImagePage>)
+                          }
+                          className="mt-1 w-full resize-y rounded-lg border border-transparent bg-muted/50 px-3 py-2 text-sm outline-none focus:border-border focus:bg-background"
+                        />
+                      </label>
+                    ))}
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      className="rounded-full"
-                      disabled={generatingPageId === activePage.id}
-                      onClick={() => void generatePageImage(activePage.id)}
-                    >
-                      {generatingPageId === activePage.id ? (
-                        <LoaderCircle className="animate-spin" />
-                      ) : (
-                        <RefreshCw />
-                      )}
-                      {t("workflow.workbench.generateImage")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="rounded-full"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(activePage.imagePrompt);
-                        } catch {
-                          // Clipboard may be unavailable in some desktop webviews.
-                        }
-                      }}
-                    >
-                      <Copy />
-                      {t("workflow.workbench.copyPrompt")}
-                    </Button>
-                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    className="rounded-lg"
+                    disabled={generatingPageId === activePage.id}
+                    onClick={() => void generatePageImage(activePage.id)}
+                  >
+                    {generatingPageId === activePage.id ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : (
+                      <RefreshCw />
+                    )}
+                    {t("workflow.workbench.generateImage")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-lg"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(
+                          activePage.imagePrompt,
+                        );
+                      } catch {
+                        // Clipboard may be unavailable in some desktop webviews.
+                      }
+                    }}
+                  >
+                    <Copy />
+                    {t("workflow.workbench.copyPrompt")}
+                  </Button>
                 </div>
               </div>
             </div>
-          )}
-        </section>
+          </div>
+        )}
+      </section>
 
-        {/* Right: global design */}
-        <aside className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] bg-muted/40">
-          <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-3">
-            <p className="text-sm font-bold text-foreground">
-              {t("workflow.workbench.designTitle")}
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              className="rounded-full"
-              disabled={isGenerating}
-              onClick={() => void redesignAll()}
-            >
-              {isGenerating ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <Sparkles />
-              )}
-              {t("workflow.workbench.redesign")}
-            </Button>
-          </div>
-          <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-3">
-            {DESIGN_FIELDS.map((field) => (
-              <label key={field} className="block">
-                <span className="text-[11px] font-bold text-muted-foreground">
-                  {t(`workflow.workbench.design.${field}`)}
-                </span>
-                <textarea
-                  value={storyDesign[field]}
-                  rows={field === "summary" || field === "style" ? 3 : 2}
-                  onChange={(event) =>
-                    setStoryDesignField(field, event.target.value)
-                  }
-                  className="mt-1 w-full resize-y rounded-xl border border-transparent bg-card px-3 py-2 text-xs leading-relaxed outline-none focus:border-border"
-                />
-              </label>
-            ))}
-          </div>
-        </aside>
-      </div>
-
-      {/* Bottom chat */}
-      <div className="border-t border-border bg-card px-3 py-3 sm:px-4">
-        {error && (
-          <div className="mb-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-            {error}
-          </div>
-        )}
-        {aiMessages.slice(-2).map((item) => (
-          <p
-            key={item.id}
-            className={cn(
-              "mb-2 line-clamp-2 text-xs",
-              item.role === "user"
-                ? "text-muted-foreground"
-                : "text-foreground",
-            )}
-          >
-            <span className="font-bold">
-              {item.role === "user"
-                ? t("workflow.workbench.you")
-                : t("workflow.workbench.ai")}
-              ：
-            </span>
-            {item.content}
-          </p>
-        ))}
-        {availableCharacters.length > 0 && (
-          <div className="mb-2 flex items-center gap-2 overflow-x-auto">
-            <span className="shrink-0 text-[11px] font-bold text-muted-foreground">
-              {t("workflow.workbench.characters")}
-            </span>
-            {availableCharacters.map((character) => {
-              const selected = selectedCharacterIds.includes(character.id);
-              return (
-                <button
-                  key={character.id}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => toggleSelectedCharacter(character.id)}
-                  className={cn(
-                    "flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold transition-colors",
-                    selected
-                      ? "bg-accent text-accent-foreground ring-1 ring-primary/25"
-                      : "bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-                  )}
-                >
-                  <span className="grid size-5 place-items-center overflow-hidden rounded-full bg-card">
-                    {character.images[0]?.dataUrl ? (
-                      <img
-                        src={character.images[0].dataUrl}
-                        alt=""
-                        className="size-full object-cover"
-                      />
-                    ) : (
-                      <UserRound className="size-3 text-muted-foreground" />
-                    )}
-                  </span>
-                  <span>{character.name || t("characters.untitled")}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-        {attachment && (
-          <div className="mb-2 flex w-fit items-center gap-2 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold">
-            <Paperclip className="size-3.5 text-primary" />
-            <span className="max-w-56 truncate">{attachment.name}</span>
-            <button type="button" onClick={() => setAttachment(null)}>
-              <X className="size-3.5" />
-            </button>
-          </div>
-        )}
-        <div className="flex items-end gap-2 rounded-2xl bg-muted/50 p-2">
-          <textarea
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            rows={2}
-            placeholder={t("workflow.workbench.chatPlaceholder")}
-            className="min-h-11 flex-1 resize-none bg-transparent px-1 py-2 text-sm outline-none placeholder:text-muted-foreground"
-          />
-          <label
-            title={t("workflow.idea.attach")}
-            aria-label={t("workflow.idea.attach")}
-            className="mb-0.5 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-card hover:text-foreground"
-          >
-            <Paperclip className="size-4" />
-            <input
-              type="file"
-              accept="image/*,video/*,audio/*,.txt,.md,.pdf,.doc,.docx,.csv"
-              className="sr-only"
-              onChange={onAttachmentChange}
-            />
-          </label>
-          <Button
-            size="icon"
-            className="mb-0.5 size-9 shrink-0 rounded-full"
-            disabled={isGenerating || (!message.trim() && !attachment)}
-            onClick={() => void sendMessage()}
-            aria-label={t("workflow.idea.send")}
-          >
-            {isGenerating ? (
-              <LoaderCircle className="animate-spin" />
-            ) : (
-              <Send />
-            )}
-          </Button>
-        </div>
-      </div>
+      <ChatPanel
+        collapsed={chatCollapsed}
+        onToggleCollapsed={() => setChatCollapsed((value) => !value)}
+        messages={aiMessages}
+        message={message}
+        onMessageChange={setMessage}
+        attachment={attachment}
+        onClearAttachment={() => setAttachment(null)}
+        onAttachmentChange={onAttachmentChange}
+        availableCharacters={availableCharacters}
+        selectedCharacterIds={selectedCharacterIds}
+        onToggleCharacter={toggleSelectedCharacter}
+        activePage={activePage}
+        activePageNumber={activePageNumber}
+        isGenerating={isGenerating}
+        error={error}
+        onSend={() => void sendMessage()}
+        onCancel={cancelGeneration}
+      />
     </div>
   );
 }

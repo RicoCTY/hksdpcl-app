@@ -15,21 +15,18 @@ export function FormatStep() {
     id: ContentFormat;
     icon: typeof Smartphone;
     title: string;
-    desc: string;
     ratioLabel: string;
   }[] = [
     {
       id: "story",
       icon: Smartphone,
       title: t("format.story"),
-      desc: t("format.storyDesc"),
       ratioLabel: "9:16",
     },
     {
       id: "post",
       icon: ImageIcon,
       title: t("format.post"),
-      desc: t("format.postDesc"),
       ratioLabel: "4:5",
     },
   ];
@@ -90,10 +87,9 @@ export function FormatStep() {
                 >
                   <Icon className="size-5" />
                 </div>
-                <div className="text-base font-bold">{card.title}</div>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  {card.desc}
-                </p>
+                <div className="text-[clamp(1.25rem,2.2vw,1.5rem)] font-extrabold tracking-tight">
+                  {card.title}
+                </div>
                 <div className="mt-4 inline-flex rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
                   {card.ratioLabel}
                 </div>

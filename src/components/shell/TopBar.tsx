@@ -1,15 +1,10 @@
-import { ArrowLeft, FileDown } from "lucide-react";
+import { ArrowLeft, FileDown, Plus, SlidersHorizontal } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useProjectStore, type AgentStep } from "@/store/projectStore";
-
-const PREVIOUS_STEP: Partial<Record<AgentStep, AgentStep>> = {
-  // Format/aspect is locked after selection — it drives image generation size.
-  caption_audio: "workbench",
-  export: "workbench",
-};
+import { cn } from "@/lib/utils";
+import { useProjectStore } from "@/store/projectStore";
 
 interface TopBarProps {
   title: string;
@@ -23,101 +18,167 @@ export function TopBar({ title }: TopBarProps) {
   const setProjectName = useProjectStore((s) => s.setProjectName);
   const imagePages = useProjectStore((s) => s.imagePages);
   const goToStep = useProjectStore((s) => s.goToStep);
+  const workbenchDesignOpen = useProjectStore((s) => s.workbenchDesignOpen);
+  const toggleWorkbenchDesignOpen = useProjectStore(
+    (s) => s.toggleWorkbenchDesignOpen,
+  );
+  const characters = useProjectStore((s) => s.characters);
+  const activeCharacterId = useProjectStore((s) => s.activeCharacterId);
+  const createCharacter = useProjectStore((s) => s.createCharacter);
+  const characterEditorSession = useProjectStore(
+    (s) => s.characterEditorSession,
+  );
   const reduceMotion = useReducedMotion();
+  const isEditingCharacter = view === "characters" && Boolean(activeCharacterId);
+  const showCreateCharacter =
+    view === "characters" && !activeCharacterId && characters.length > 0;
 
-  const previousStep = PREVIOUS_STEP[step];
+  const showWorkflowChrome =
+    view === "home" && (step === "workbench" || step === "caption_audio");
   const canExport =
     step === "workbench" &&
     imagePages.some((page) => page.selectedImageId || page.imageIds.length);
 
+  const tabTransition = reduceMotion
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 420, damping: 32 };
+
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border px-6 sm:px-7">
-      <div className="flex min-w-0 items-center gap-1.5">
-        {view === "home" ? (
-          <>
-            {previousStep && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="shrink-0 rounded-full text-muted-foreground"
-                onClick={() => goToStep(previousStep)}
-              >
-                <ArrowLeft />
-                {t("workflow.back")}
-              </Button>
-            )}
-            <Input
-              aria-label={t("nav.projectName")}
-              value={projectName}
-              onChange={(event) => setProjectName(event.target.value)}
-              placeholder={t("nav.untitledProject")}
-              maxLength={80}
-              className="h-9 w-56 max-w-[42vw] overflow-x-auto rounded-lg border border-transparent bg-transparent px-3 text-base font-semibold leading-none text-foreground caret-primary shadow-none transition-colors placeholder:text-muted-foreground hover:bg-muted/60 focus-visible:border-primary/40 focus-visible:bg-card focus-visible:ring-2 focus-visible:ring-primary/15 focus-visible:shadow-sm"
-            />
-          </>
+    <header className="relative flex h-16 shrink-0 items-center justify-between gap-3 border-b border-border px-5 sm:px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        {isEditingCharacter ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 rounded-lg px-2.5 text-muted-foreground"
+            onClick={() => characterEditorSession?.back()}
+          >
+            <ArrowLeft className="size-3.5" />
+            {t("characters.back")}
+          </Button>
+        ) : view === "home" ? (
+          <Input
+            aria-label={t("nav.projectName")}
+            value={projectName}
+            onChange={(event) => setProjectName(event.target.value)}
+            placeholder={t("nav.untitledProject")}
+            maxLength={80}
+            className="h-9 w-52 max-w-[36vw] rounded-lg border-transparent bg-transparent px-2.5 text-[15px] font-medium leading-none text-foreground caret-primary shadow-none outline-none transition-colors placeholder:text-muted-foreground hover:bg-muted/50 focus-visible:border-transparent focus-visible:bg-muted/50"
+          />
         ) : (
-          <div className="truncate text-base font-semibold text-foreground">
+          <div className="truncate px-2.5 text-[15px] font-medium text-foreground">
             {title}
           </div>
         )}
       </div>
-      {view === "home" &&
-        (step === "workbench" || step === "caption_audio") && (
-        <div className="flex shrink-0 items-center gap-2">
-          <div
-            role="tablist"
-            aria-label={t("workflow.workbench.viewSwitch")}
-            className="relative flex items-center rounded-full border border-border bg-muted/50 p-1"
+
+      {showWorkflowChrome && (
+        <nav
+          className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-muted/60 p-1"
+          aria-label={t("workflow.workbench.viewSwitch")}
+          role="tablist"
+        >
+          {(
+            [
+              { id: "workbench" as const, label: t("workflow.workbench.boardTab") },
+              {
+                id: "caption_audio" as const,
+                label: t("workflow.workbench.narrationAudio"),
+              },
+            ] as const
+          ).map((tab) => {
+            const selected = step === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => goToStep(tab.id)}
+                className={cn(
+                  "relative z-10 h-8 rounded-full px-4 text-[13px] font-medium outline-none transition-colors",
+                  selected
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {selected && (
+                  <motion.span
+                    layoutId="workflow-tab-pill"
+                    className="absolute inset-0 -z-10 rounded-full bg-card shadow-sm ring-1 ring-border/70"
+                    transition={tabTransition}
+                  />
+                )}
+                <span className="relative">{tab.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
+      <div className="flex shrink-0 items-center justify-end gap-1.5">
+        {isEditingCharacter && (
+          <Button
+            size="sm"
+            className="h-9 rounded-lg px-3"
+            disabled={!characterEditorSession?.canSave}
+            title={
+              characterEditorSession?.canSave
+                ? undefined
+                : t("characters.completeHint")
+            }
+            onClick={() => characterEditorSession?.done()}
           >
-            <motion.div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-full bg-card shadow-sm ring-1 ring-border"
-              animate={{ x: step === "caption_audio" ? "100%" : "0%" }}
-              transition={
-                reduceMotion
-                  ? { duration: 0 }
-                  : { type: "spring", stiffness: 420, damping: 30 }
-              }
-            />
-            <button
-              type="button"
-              role="tab"
-              aria-selected={step === "workbench"}
-              onClick={() => goToStep("workbench")}
-              className={`relative z-10 flex h-8 flex-1 items-center justify-center rounded-full px-3 text-xs font-semibold transition-colors ${
-                step === "workbench"
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t("workflow.workbench.storyDesign")}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={step === "caption_audio"}
-              onClick={() => goToStep("caption_audio")}
-              className={`relative z-10 flex h-8 flex-1 items-center justify-center rounded-full px-3 text-xs font-semibold transition-colors ${
-                step === "caption_audio"
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t("workflow.workbench.narrationAudio")}
-            </button>
-          </div>
-          {step === "workbench" && (
+            {t("characters.done")}
+          </Button>
+        )}
+        {showCreateCharacter && (
+          <Button
+            size="sm"
+            className="h-9 rounded-lg px-3"
+            onClick={() => createCharacter()}
+          >
+            <Plus className="size-3.5" />
+            <span className="hidden sm:inline">{t("characters.create")}</span>
+          </Button>
+        )}
+        {step === "workbench" && view === "home" && (
+          <motion.div
+            initial={reduceMotion ? false : { opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.18 }}
+            className="flex items-center gap-1.5"
+          >
             <Button
-              className="rounded-full px-5"
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-9 rounded-lg px-3 text-muted-foreground",
+                workbenchDesignOpen && "bg-muted text-foreground",
+              )}
+              aria-pressed={workbenchDesignOpen}
+              onClick={() => toggleWorkbenchDesignOpen()}
+            >
+              <SlidersHorizontal className="size-3.5" />
+              <span className="hidden sm:inline">
+                {t("workflow.workbench.designShort")}
+              </span>
+            </Button>
+            <Button
+              variant={canExport ? "default" : "ghost"}
+              size="sm"
+              className="h-9 rounded-lg px-3"
               disabled={!canExport}
               onClick={() => goToStep("export")}
             >
-              <FileDown />
-              {t("workflow.workbench.exportAll")}
+              <FileDown className="size-3.5" />
+              <span className="hidden sm:inline">
+                {t("workflow.workbench.exportAll")}
+              </span>
             </Button>
-          )}
-        </div>
-      )}
+          </motion.div>
+        )}
+      </div>
     </header>
   );
 }

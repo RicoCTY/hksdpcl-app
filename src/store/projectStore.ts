@@ -29,11 +29,24 @@ export interface CreativeBrief {
   captionDirection: string;
 }
 
+export type AgentReceipt =
+  | { type: "set_design" }
+  | { type: "upsert_pages"; count: number; mode: "merge" | "replace" }
+  | { type: "update_page"; count: number }
+  | { type: "add_page"; count: number }
+  | { type: "remove_page"; count: number }
+  | { type: "reorder_pages" }
+  | { type: "generate_images"; count: number }
+  | { type: "set_active_page" }
+  | { type: "generating_image"; pageNumber: number };
+
 export interface AiMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   createdAt: number;
+  /** Structured receipts for assistant turns (tool outcomes). */
+  receipts?: AgentReceipt[];
 }
 
 export interface PlanVersion {
@@ -253,6 +266,15 @@ export interface ProjectState {
   voiceoverGenerated: boolean;
   characters: Character[];
   activeCharacterId: string | null;
+  /** Ephemeral workbench UI — not persisted with the project. */
+  workbenchDesignOpen: boolean;
+  /** Ephemeral character editor chrome — not persisted. */
+  characterEditorSession: {
+    canSave: boolean;
+    back: () => void;
+    done: () => void;
+    requestLeave: (onLeave?: () => void) => void;
+  } | null;
   setView: (view: ShellView) => void;
   setProjectName: (projectName: string) => void;
   setProjectSort: (projectSort: ProjectSort) => void;
@@ -299,7 +321,20 @@ export interface ProjectState {
   setSelectedCaption: (selectedCaption: string) => void;
   setVoiceoverGenerated: (voiceoverGenerated: boolean) => void;
   setActiveCharacterId: (activeCharacterId: string | null) => void;
-  createCharacter: () => string;
+  setWorkbenchDesignOpen: (open: boolean) => void;
+  toggleWorkbenchDesignOpen: () => void;
+  setCharacterEditorSession: (
+    session: ProjectState["characterEditorSession"],
+  ) => void;
+  commitCharacter: (
+    characterId: string,
+    draft: Pick<Character, "name" | "background" | "images">,
+  ) => boolean;
+  createCharacter: (seed?: {
+    name?: string;
+    background?: string;
+    images?: Array<Pick<CharacterImage, "name" | "dataUrl">>;
+  }) => string;
   completeCharacter: (characterId: string) => void;
   updateCharacter: (
     characterId: string,
@@ -309,6 +344,7 @@ export interface ProjectState {
     characterId: string,
     images: Array<Pick<CharacterImage, "name" | "dataUrl">>,
   ) => void;
+  setCharacterCover: (characterId: string, imageId: string) => void;
   removeCharacterImage: (characterId: string, imageId: string) => void;
   deleteCharacter: (characterId: string) => void;
   confirmFormat: () => void;
@@ -932,6 +968,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   voiceoverGenerated: INITIAL_PROJECT.voiceoverGenerated,
   characters: getStoredCharacters(),
   activeCharacterId: null,
+  workbenchDesignOpen: false,
+  characterEditorSession: null,
 
   setView: (view) => {
     const currentCharacters = get().characters;
@@ -1292,13 +1330,43 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
   setActiveCharacterId: (activeCharacterId) => set({ activeCharacterId }),
 
-  createCharacter: () => {
+  setWorkbenchDesignOpen: (open) => set({ workbenchDesignOpen: open }),
+
+  toggleWorkbenchDesignOpen: () =>
+    set((state) => ({ workbenchDesignOpen: !state.workbenchDesignOpen })),
+
+  setCharacterEditorSession: (characterEditorSession) =>
+    set({ characterEditorSession }),
+
+  commitCharacter: (characterId, draft) => {
+    if (!draft.name.trim() || draft.images.length === 0) return false;
+    const characters = get().characters.map((item) =>
+      item.id === characterId
+        ? {
+            ...item,
+            name: draft.name.trim(),
+            background: draft.background,
+            images: draft.images,
+            isDraft: false,
+            updatedAt: Date.now(),
+          }
+        : item,
+    );
+    persistCharacters(characters);
+    set({ characters, activeCharacterId: null });
+    return true;
+  },
+
+  createCharacter: (seed) => {
     const now = Date.now();
     const character: Character = {
       id: createId("character"),
-      name: "",
-      background: "",
-      images: [],
+      name: seed?.name?.trim() ?? "",
+      background: seed?.background?.trim() ?? "",
+      images: (seed?.images ?? []).map((image) => ({
+        ...image,
+        id: createId("image"),
+      })),
       createdAt: now,
       updatedAt: now,
       isDraft: true,
@@ -1353,6 +1421,20 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     set({ characters });
   },
 
+  setCharacterCover: (characterId, imageId) => {
+    const characters = get().characters.map((character) => {
+      if (character.id !== characterId) return character;
+      const index = character.images.findIndex((image) => image.id === imageId);
+      if (index <= 0) return character;
+      const nextImages = [...character.images];
+      const [cover] = nextImages.splice(index, 1);
+      nextImages.unshift(cover);
+      return { ...character, images: nextImages, updatedAt: Date.now() };
+    });
+    persistCharacters(characters);
+    set({ characters });
+  },
+
   removeCharacterImage: (characterId, imageId) => {
     const characters = get().characters.map((character) =>
       character.id === characterId
@@ -1393,7 +1475,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       return;
     }
     updateProject({ step });
-    set({ view: "home" });
+    set({
+      view: "home",
+      ...(step !== "workbench" ? { workbenchDesignOpen: false } : {}),
+    });
   },
 
   newProject: () => {

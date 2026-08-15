@@ -1,3 +1,4 @@
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/shell/AppShell";
 import { CaptionAudioStep } from "@/components/steps/CaptionAudioStep";
@@ -13,6 +14,7 @@ export default function App() {
   const { t } = useTranslation();
   const view = useProjectStore((s) => s.view);
   const step = useProjectStore((s) => s.step);
+  const reduceMotion = useReducedMotion();
 
   let title = t(`steps.${step}`);
   if (view === "settings") title = t("settings.title");
@@ -43,5 +45,36 @@ export default function App() {
     }
   }
 
-  return <AppShell title={title}>{content}</AppShell>;
+  const contentKey = view === "home" ? `home-${step}` : view;
+  const isWorkflowSwitch =
+    view === "home" && (step === "workbench" || step === "caption_audio");
+
+  return (
+    <AppShell title={title}>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={contentKey}
+          className={isWorkflowSwitch ? "h-full min-h-0" : undefined}
+          initial={
+            reduceMotion
+              ? false
+              : { opacity: 0, y: isWorkflowSwitch ? 10 : 0 }
+          }
+          animate={{ opacity: 1, y: 0 }}
+          exit={
+            reduceMotion
+              ? undefined
+              : { opacity: 0, y: isWorkflowSwitch ? -8 : 0 }
+          }
+          transition={
+            reduceMotion
+              ? { duration: 0 }
+              : { duration: 0.2, ease: [0.22, 1, 0.36, 1] }
+          }
+        >
+          {content}
+        </motion.div>
+      </AnimatePresence>
+    </AppShell>
+  );
 }

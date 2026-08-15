@@ -94,6 +94,28 @@ textarea {
   font: inherit;
 }
 
+/* Desktop app: no blue system focus rings on clickable chrome */
+button,
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+summary {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus,
+button:focus-visible,
+[role="button"]:focus,
+[role="button"]:focus-visible,
+[role="tab"]:focus,
+[role="tab"]:focus-visible,
+[role="menuitem"]:focus,
+[role="menuitem"]:focus-visible,
+summary:focus,
+summary:focus-visible {
+  outline: none;
+}
+
 ::selection {
   background: color-mix(in oklab, var(--primary) 18%, white);
   color: var(--accent-foreground);
@@ -134,33 +156,9 @@ textarea {
 }
 
 .character-portrait-empty {
-  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
-  background:
-    radial-gradient(
-      circle at 30% 20%,
-      color-mix(in oklab, var(--primary) 16%, transparent),
-      transparent 55%
-    ),
-    linear-gradient(
-      165deg,
-      color-mix(in oklab, var(--primary) 12%, var(--muted)) 0%,
-      var(--muted) 48%,
-      color-mix(in oklab, var(--primary) 8%, var(--card)) 100%
-    );
+  background: var(--muted);
 }
 
 [data-theme="dark"] .character-portrait-empty {
-  border-color: color-mix(in oklab, var(--border) 90%, transparent);
-  background:
-    radial-gradient(
-      circle at 30% 18%,
-      color-mix(in oklab, var(--primary) 22%, transparent),
-      transparent 52%
-    ),
-    linear-gradient(
-      165deg,
-      color-mix(in oklab, var(--primary) 14%, #2a2a2f) 0%,
-      #232326 46%,
-      color-mix(in oklab, var(--primary) 10%, #1c1c20) 100%
-    );
+  background: var(--muted);
 }

@@ -40,6 +40,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const setProjectSort = useProjectStore((s) => s.setProjectSort);
   const renameProject = useProjectStore((s) => s.renameProject);
   const deleteProject = useProjectStore((s) => s.deleteProject);
+  const activeCharacterId = useProjectStore((s) => s.activeCharacterId);
+  const characterEditorSession = useProjectStore(
+    (s) => s.characterEditorSession,
+  );
   const [query, setQuery] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<ProjectRecord | null>(null);
@@ -47,6 +51,14 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [deleteTarget, setDeleteTarget] = useState<ProjectRecord | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const focusSearchOnExpand = useRef(false);
+
+  const navigate = (action: () => void) => {
+    if (activeCharacterId && characterEditorSession) {
+      characterEditorSession.requestLeave(action);
+      return;
+    }
+    action();
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -205,14 +217,14 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <nav className="grid gap-1">
         <button
           type="button"
-          onClick={() => setView("home")}
+          onClick={() => navigate(() => setView("home"))}
           title={collapsed ? t("nav.home") : undefined}
           className={cn(
-            "flex h-11 items-center gap-3 rounded-xl text-sm font-semibold transition-colors",
+            "flex h-11 items-center gap-3 rounded-xl text-sm font-semibold outline-none transition-colors",
             collapsed ? "justify-center px-0" : "px-3",
             view === "home"
-              ? "bg-card text-foreground shadow-[var(--shadow-soft)] ring-1 ring-border"
-              : "text-muted-foreground hover:bg-muted",
+              ? "bg-muted text-foreground"
+              : "text-muted-foreground hover:bg-muted/70",
           )}
         >
           <Home
@@ -228,14 +240,14 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
         <button
           type="button"
-          onClick={() => setView("characters")}
+          onClick={() => navigate(() => setView("characters"))}
           title={collapsed ? t("nav.characters") : undefined}
           className={cn(
-            "flex h-11 items-center gap-3 rounded-xl text-sm font-semibold transition-colors",
+            "flex h-11 items-center gap-3 rounded-xl text-sm font-semibold outline-none transition-colors",
             collapsed ? "justify-center px-0" : "px-3",
             view === "characters"
-              ? "bg-card text-foreground shadow-[var(--shadow-soft)] ring-1 ring-border"
-              : "text-muted-foreground hover:bg-muted",
+              ? "bg-muted text-foreground"
+              : "text-muted-foreground hover:bg-muted/70",
           )}
         >
           <UsersRound
@@ -281,9 +293,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 <button
                   type="button"
                   onClick={() => {
-                    loadProject(project.id);
-                    setQuery("");
-                    setOpenMenuId(null);
+                    navigate(() => {
+                      loadProject(project.id);
+                      setQuery("");
+                      setOpenMenuId(null);
+                    });
                   }}
                   title={collapsed ? displayName : undefined}
                   className={cn(
@@ -304,9 +318,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     setOpenMenuId(openMenuId === project.id ? null : project.id);
                   }}
                   className={cn(
-                    "absolute top-1/2 right-1 grid size-8 -translate-y-1/2 place-items-center rounded-xl text-muted-foreground transition-all hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    "absolute top-1/2 right-1 grid size-8 -translate-y-1/2 place-items-center rounded-xl text-muted-foreground outline-none transition-all hover:bg-muted hover:text-foreground focus-visible:opacity-100",
                     openMenuId === project.id
-                      ? "bg-card text-foreground opacity-100 shadow-[var(--shadow-soft)] ring-1 ring-border"
+                      ? "bg-muted text-foreground opacity-100"
                       : "opacity-0 group-hover:opacity-100",
                   )}
                   aria-label={t("nav.projectActions", { name: displayName })}
@@ -377,14 +391,14 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
         <button
           type="button"
-          onClick={() => setView("settings")}
+          onClick={() => navigate(() => setView("settings"))}
           title={collapsed ? t("nav.settings") : undefined}
           className={cn(
-            "flex h-11 w-full items-center gap-3 rounded-xl text-sm font-semibold transition-colors",
+            "flex h-11 w-full items-center gap-3 rounded-xl text-sm font-semibold outline-none transition-colors",
             collapsed ? "justify-center px-0" : "px-3",
             view === "settings"
-              ? "bg-card text-foreground shadow-[var(--shadow-soft)] ring-1 ring-border"
-              : "text-muted-foreground hover:bg-muted",
+              ? "bg-muted text-foreground"
+              : "text-muted-foreground hover:bg-muted/70",
           )}
         >
           <Settings

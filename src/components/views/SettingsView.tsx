@@ -159,7 +159,7 @@ function ModelPicker({
             if (event.key === "Escape") setOpen(false);
             if (event.key === "ArrowDown") setOpen(true);
           }}
-          className="flex h-10 w-full items-center justify-between rounded-xl border border-border bg-muted/50 px-3 text-left text-sm text-foreground outline-none transition-colors hover:bg-card focus:border-ring focus:bg-card focus:ring-2 focus:ring-ring/20"
+          className="flex h-10 w-full items-center justify-between rounded-xl border border-border bg-muted/50 px-3 text-left text-sm text-foreground outline-none transition-colors hover:bg-card focus:border-primary/50 focus:bg-card"
         >
           <span className={cn(!isPreset && "text-muted-foreground")}>
             {selectedLabel}
@@ -449,10 +449,10 @@ export function SettingsView() {
                 type="button"
                 onClick={() => scrollToSection(id)}
                 className={cn(
-                  "flex h-10 items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold transition-colors",
+                  "flex h-10 items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold outline-none transition-colors",
                   active
-                    ? "bg-card text-foreground shadow-[var(--shadow-soft)] ring-1 ring-border"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
                 )}
               >
                 <Icon

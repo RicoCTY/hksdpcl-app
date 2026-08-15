@@ -46,7 +46,7 @@ export function AppShell({ title, children }: AppShellProps) {
         onToggle={() => setSidebarCollapsed((value) => !value)}
       />
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-border bg-card">
-        {view !== "settings" && view !== "characters" && <TopBar title={title} />}
+        {view !== "settings" && <TopBar title={title} />}
         <div
           className={cn(
             "aurora-wash relative min-h-0 flex-1",
@@ -66,7 +66,7 @@ export function AppShell({ title, children }: AppShellProps) {
           <div
             className={cn(
               "relative z-10",
-              view === "settings" || isWorkbench ? "h-full" : "min-h-full",
+              view === "settings" || isWorkbench ? "h-full min-h-0" : "min-h-full",
             )}
           >
             {children}

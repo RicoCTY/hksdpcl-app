@@ -6,6 +6,7 @@ import {
 } from "@/lib/poeApi";
 import type {
   AiMessage,
+  AgentReceipt,
   Character,
   ContentFormat,
   GeneratedImage,
@@ -23,6 +24,42 @@ export const DESIGN_FIELDS: Array<keyof StoryDesign> = [
   "audience",
   "pacing",
 ];
+
+/** Typed tool registry — mirrors AgentAction types for docs and future function-calling. */
+export const AGENT_TOOL_REGISTRY = [
+  {
+    name: "set_design",
+    description: "Update global story design (project-level creative direction).",
+  },
+  {
+    name: "upsert_pages",
+    description: "Create or merge storyboard pages on the canvas.",
+  },
+  {
+    name: "update_page",
+    description: "Surgically update fields on one page.",
+  },
+  {
+    name: "add_page",
+    description: "Insert a new storyboard page.",
+  },
+  {
+    name: "remove_page",
+    description: "Delete a storyboard page.",
+  },
+  {
+    name: "reorder_pages",
+    description: "Reorder canvas pages.",
+  },
+  {
+    name: "generate_images",
+    description: "Queue image generation for one or more pages.",
+  },
+  {
+    name: "set_active_page",
+    description: "Focus a page on the canvas.",
+  },
+] as const;
 
 export type AgentAction =
   | { type: "set_design"; design: Partial<StoryDesign> }
@@ -74,6 +111,7 @@ export interface AgentTurnResponse {
 export interface AgentApplyResult {
   reply: string;
   pagesToGenerate: string[];
+  receipts: AgentReceipt[];
 }
 
 export interface StoryboardAgentContext {
@@ -184,10 +222,10 @@ Mission priorities (always):
 5. Visuals should support learning: clear situations, readable staging, helpful character demos, and concrete safety actions.
 6. Do not invent organisational policies, statistics, laws, or official instructions. Stay general and practical unless the user provides facts.
 
-You control the workbench through structured actions:
-- Global story design (right panel) = project-level educational direction / creative system prompt.
+You control the workbench through structured actions (tools):
+- Global story design (collapsible sheet over the canvas) = project-level educational direction / creative system prompt.
 - Storyboard canvas (center) = per-page learning beat, composition, dialogue/voiceover, and image prompts.
-- The user chat (bottom) is your control channel. Obey revision requests surgically when possible.
+- The user chat (right panel) is your control channel. Obey revision requests surgically when possible.
 
 Always reply with valid JSON only:
 {
@@ -362,6 +400,10 @@ export function applyAgentActions(
 ): AgentApplyResult {
   const actions = normalizeActions(response);
   const pagesToGenerate = new Set<string>();
+  const receipts: AgentReceipt[] = [];
+  let updatePageCount = 0;
+  let addPageCount = 0;
+  let removePageCount = 0;
 
   for (const action of actions) {
     switch (action.type) {
@@ -377,6 +419,7 @@ export function applyAgentActions(
           }
         });
         bridge.setStoryDesign(nextDesign);
+        receipts.push({ type: "set_design" });
         break;
       }
       case "upsert_pages": {
@@ -421,11 +464,13 @@ export function applyAgentActions(
             bridge.setActivePageId(pages[0].id);
             bridge.setSelectedImageId(pages[0].selectedImageId);
           }
+          receipts.push({ type: "upsert_pages", count: pages.length, mode });
           break;
         }
 
         // merge
         let pages = [...bridge.getImagePages()];
+        let touched = 0;
         incoming.forEach((page, index) => {
           const targetId = resolvePageId(pages, asString(page.id) || undefined, page.pageIndex);
           const fields = pickPageFields(page);
@@ -454,13 +499,18 @@ export function applyAgentActions(
                   .filter((image) => image.pageId !== targetId),
               );
             }
+            touched += 1;
           } else {
             pages.push(
               emptyPage(page, bridge.untitledPage(pages.length + index + 1)),
             );
+            touched += 1;
           }
         });
         bridge.setImagePages(pages);
+        if (touched) {
+          receipts.push({ type: "upsert_pages", count: touched, mode });
+        }
         break;
       }
       case "update_page": {
@@ -482,6 +532,7 @@ export function applyAgentActions(
             bridge.getGeneratedImages().filter((image) => image.pageId !== pageId),
           );
         }
+        updatePageCount += 1;
         break;
       }
       case "add_page": {
@@ -499,6 +550,7 @@ export function applyAgentActions(
         pages.splice(at, 0, next);
         bridge.setImagePages(pages);
         bridge.setActivePageId(next.id);
+        addPageCount += 1;
         break;
       }
       case "remove_page": {
@@ -510,6 +562,7 @@ export function applyAgentActions(
         bridge.setGeneratedImages(
           bridge.getGeneratedImages().filter((image) => image.pageId !== pageId),
         );
+        removePageCount += 1;
         break;
       }
       case "reorder_pages": {
@@ -531,6 +584,7 @@ export function applyAgentActions(
           if (!used.has(page.id)) next.push(page);
         });
         bridge.setImagePages(next);
+        receipts.push({ type: "reorder_pages" });
         break;
       }
       case "generate_images": {
@@ -554,7 +608,10 @@ export function applyAgentActions(
           action.pageId,
           action.pageIndex,
         );
-        if (pageId) bridge.setActivePageId(pageId);
+        if (pageId) {
+          bridge.setActivePageId(pageId);
+          receipts.push({ type: "set_active_page" });
+        }
         break;
       }
       default:
@@ -562,31 +619,48 @@ export function applyAgentActions(
     }
   }
 
+  if (updatePageCount) {
+    receipts.push({ type: "update_page", count: updatePageCount });
+  }
+  if (addPageCount) {
+    receipts.push({ type: "add_page", count: addPageCount });
+  }
+  if (removePageCount) {
+    receipts.push({ type: "remove_page", count: removePageCount });
+  }
+  if (pagesToGenerate.size) {
+    receipts.push({ type: "generate_images", count: pagesToGenerate.size });
+  }
+
   return {
     reply: asString(response.reply) || replyFallback,
     pagesToGenerate: Array.from(pagesToGenerate),
+    receipts,
   };
 }
 
-export async function runStoryboardAgentTurn({
+export function runStoryboardAgentTurn({
   apiKey,
   textModel,
   context,
+  signal,
 }: {
   apiKey: string;
   textModel: string;
   context: StoryboardAgentContext;
+  signal?: AbortSignal;
 }) {
   const history: PoeMessage[] = context.aiMessages.slice(-8).map((item) => ({
     role: item.role,
     content: item.content,
   }));
 
-  const response = await poeChatJson<AgentTurnResponse>({
+  return poeChatJson<AgentTurnResponse>({
     apiKey,
     model: textModel,
     maxTokens: 3600,
     temperature: 0.7,
+    signal,
     messages: [
       {
         role: "system",
@@ -596,8 +670,6 @@ export async function runStoryboardAgentTurn({
       { role: "user", content: buildAgentUserContent(context) },
     ],
   });
-
-  return response;
 }
 
 export async function generateStoryboardPageImage({
