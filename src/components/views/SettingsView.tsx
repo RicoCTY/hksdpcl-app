@@ -780,6 +780,19 @@ export function SettingsView() {
                 </CardContent>
               </Card>
               <Card>
+                <CardContent className="pt-5">
+                  <h3 className="text-sm font-bold text-foreground">
+                    {t("settings.firstLaunchTitle")}
+                  </h3>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {t("settings.firstLaunchDescription")}
+                  </p>
+                  <code className="mt-3 block overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-[12px] text-foreground">
+                    {t("settings.firstLaunchCommand")}
+                  </code>
+                </CardContent>
+              </Card>
+              <Card>
                 <CardContent className="flex flex-col gap-4 pt-5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-start gap-3">
                     <RefreshCw className="mt-0.5 size-4 text-muted-foreground" />

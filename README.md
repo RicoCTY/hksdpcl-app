@@ -124,16 +124,39 @@ The **Release** workflow then builds:
 - macOS Intel `.dmg`
 - Windows NSIS `.exe`
 
-When it finishes, GitHub creates a **draft** at [Releases](https://github.com/RicoCTY/hksdpcl-app/releases). Open the `v0.1.0` draft and click **Publish release**. Until you publish, there is nothing to download and Settings cannot see a newer version.
+When it finishes, GitHub creates a **draft** at [Releases](https://github.com/RicoCTY/hksdpcl-app/releases). Open that draft and click **Publish release**. Until you publish, there is nothing to download and Settings cannot see a newer version.
 
 Download page after publish:
 
 https://github.com/RicoCTY/hksdpcl-app/releases/latest
 
-First launch (unsigned):
+First launch (unsigned builds):
 
-- macOS: right-click the app → Open → Open
-- Windows: SmartScreen → More info → Run anyway
+macOS Sequoia / Tahoe will say the app is **damaged**. It is not. Gatekeeper blocks unsigned downloads, and right-click → Open no longer works. After dragging the app to Applications:
+
+```bash
+xattr -cr "/Applications/HKSDPCL Studio.app"
+open "/Applications/HKSDPCL Studio.app"
+```
+
+If that is not enough:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/HKSDPCL Studio.app"
+open "/Applications/HKSDPCL Studio.app"
+```
+
+Use the Apple Silicon `.dmg` on M-series Macs and the Intel `.dmg` on Intel Macs. The real fix is an Apple Developer ID certificate plus notarization.
+
+Windows: SmartScreen → More info → Run anyway.
+
+If the app installs but **double-clicking does nothing** (no window, no error), the WebView2 Runtime is missing or broken. The installer embeds an offline WebView2 installer, so reinstalling should repair it — no internet needed during install. To check whether WebView2 is present, run in PowerShell:
+
+```powershell
+Get-AppxPackage -AllUsers -Name "Microsoft.WebView2Runtime"
+```
+
+If that returns nothing, reinstall the app, or grab the "Evergreen Standalone Installer" from <https://developer.microsoft.com/microsoft-edge/webview2>. If the downloaded `.exe` itself refuses to start or disappears, check the antivirus quarantine — unsigned NSIS installers are frequent false positives.
 
 ### Later updates
 

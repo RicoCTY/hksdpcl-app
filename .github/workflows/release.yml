@@ -53,6 +53,17 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: HKSDPCL Studio ${{ github.ref_name }}
-          releaseBody: Download the installer for your computer. After install, Settings → Help can check for later updates.
+          releaseBody: |
+            Download the installer for your computer.
+
+            **macOS:** the unsigned build will look “damaged”. That is Gatekeeper, not a broken file. Drag the app to Applications, then run:
+
+            `xattr -cr "/Applications/HKSDPCL Studio.app"`
+
+            Use the Apple Silicon DMG on M-series Macs, or the Intel DMG on Intel Macs.
+
+            **Windows:** SmartScreen → More info → Run anyway. If the installed app does nothing when opened, reinstall it — the installer embeds an offline WebView2 runtime, and reinstalling repairs broken WebView2 setups without needing internet.
+
+            After install, Settings → Help can check for later updates.
           releaseDraft: true
           args: ${{ matrix.args }}
