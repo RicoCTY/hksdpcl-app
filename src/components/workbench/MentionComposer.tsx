@@ -249,6 +249,45 @@ function placeCaretAfter(node: Node) {
   selection.addRange(range);
 }
 
+function consumeMentionTrigger(root: HTMLElement) {
+  const selection = document.getSelection();
+  if (!selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  let node: Node | null = range.startContainer;
+  let offset = range.startOffset;
+
+  if (node === root && node instanceof HTMLElement) {
+    const before = node.childNodes[Math.max(0, offset - 1)];
+    if (before?.nodeType === Node.TEXT_NODE) {
+      node = before;
+      offset = before.textContent?.length ?? 0;
+    } else if (before?.previousSibling?.nodeType === Node.TEXT_NODE) {
+      node = before.previousSibling;
+      offset = node.textContent?.length ?? 0;
+    }
+  }
+
+  if (node?.nodeType !== Node.TEXT_NODE) return;
+  const textNode = node as Text;
+  const before = textNode.data.slice(0, offset);
+  const at = before.lastIndexOf("@");
+  if (at < 0 || /[\s\n]/.test(before.slice(at + 1))) return;
+
+  const wipe = document.createRange();
+  wipe.setStart(textNode, at);
+  wipe.setEnd(textNode, offset);
+  wipe.deleteContents();
+}
+
+function stripTrailingAt(node: Node) {
+  const previous = node.previousSibling;
+  if (previous?.nodeType !== Node.TEXT_NODE) return;
+  const textNode = previous as Text;
+  if (!textNode.data.endsWith("@")) return;
+  textNode.data = textNode.data.slice(0, -1);
+  if (!textNode.data) textNode.remove();
+}
+
 function insertNodeAtCaret(node: Node) {
   const selection = document.getSelection();
   if (!selection?.rangeCount) return;
@@ -317,23 +356,14 @@ export function MentionComposer({
       const selection = document.getSelection();
       if (!editor || !selection?.rangeCount) return;
       editor.focus();
+      consumeMentionTrigger(editor);
 
       const range = selection.getRangeAt(0);
-      const container = range.startContainer;
-      if (container.nodeType === Node.TEXT_NODE) {
-        const textNode = container as Text;
-        const before = textNode.data.slice(0, range.startOffset);
-        const at = before.lastIndexOf("@");
-        if (at >= 0) {
-          range.setStart(textNode, at);
-          range.deleteContents();
-        }
-      }
-
       const chip = createMentionChip(character, untitled);
       const space = document.createTextNode("\u00A0");
       range.insertNode(space);
       range.insertNode(chip);
+      stripTrailingAt(chip);
       placeCaretAfter(space);
       sync();
     },

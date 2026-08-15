@@ -8,6 +8,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
+  Plus,
   Moon,
   Sun,
   Trash2,
@@ -40,6 +41,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const setProjectSort = useProjectStore((s) => s.setProjectSort);
   const renameProject = useProjectStore((s) => s.renameProject);
   const deleteProject = useProjectStore((s) => s.deleteProject);
+  const newProject = useProjectStore((s) => s.newProject);
   const activeCharacterId = useProjectStore((s) => s.activeCharacterId);
   const characterEditorSession = useProjectStore(
     (s) => s.characterEditorSession,
@@ -270,6 +272,15 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           </div>
           <div className="flex items-center gap-1">
             {query && <span className="mr-1 text-sm font-semibold tabular-nums text-muted-foreground">{visibleProjects.length}</span>}
+            <button
+              type="button"
+              onClick={() => navigate(() => newProject())}
+              className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={t("nav.newProject")}
+              title={t("nav.newProject")}
+            >
+              <Plus className="size-3.5" />
+            </button>
             <button
               type="button"
               onClick={() => setProjectSort(projectSort === "updated" ? "name" : "updated")}
