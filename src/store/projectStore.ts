@@ -49,6 +49,14 @@ export interface AiMessage {
   receipts?: AgentReceipt[];
 }
 
+export interface ChatSession {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: AiMessage[];
+}
+
 export interface PlanVersion {
   id: string;
   createdAt: number;
@@ -217,6 +225,8 @@ export interface ProjectRecord {
   storyDesign: StoryDesign;
   storyMaterials: StoryMaterial[];
   aiMessages: AiMessage[];
+  chatSessions: ChatSession[];
+  activeChatSessionId: string;
   planVersions: PlanVersion[];
   activePlanVersionId: string | null;
   activePageId: string | null;
@@ -251,6 +261,8 @@ export interface ProjectState {
   storyDesign: StoryDesign;
   storyMaterials: StoryMaterial[];
   aiMessages: AiMessage[];
+  chatSessions: ChatSession[];
+  activeChatSessionId: string;
   planVersions: PlanVersion[];
   activePlanVersionId: string | null;
   activePageId: string | null;
@@ -302,6 +314,10 @@ export interface ProjectState {
   addStoryMaterial: (material: Omit<StoryMaterial, "id">) => void;
   removeStoryMaterial: (materialId: string) => void;
   setAiMessages: (messages: AiMessage[]) => void;
+  createChatSession: () => void;
+  setActiveChatSession: (sessionId: string) => void;
+  clearActiveChatSession: () => void;
+  deleteChatSession: (sessionId: string) => void;
   addPlanVersion: (version: Omit<PlanVersion, "id" | "createdAt">) => string;
   restorePlanVersion: (versionId: string) => void;
   setActivePageId: (activePageId: string | null) => void;
@@ -386,6 +402,78 @@ function createId(prefix: string) {
     return `${prefix}-${crypto.randomUUID()}`;
   }
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+const MAX_CHAT_SESSIONS = 20;
+const MAX_SESSION_MESSAGES = 40;
+
+function createEmptyChatSession(messages: AiMessage[] = []): ChatSession {
+  const now = Date.now();
+  return {
+    id: createId("chat"),
+    title: deriveSessionTitle(messages),
+    createdAt: now,
+    updatedAt: now,
+    messages,
+  };
+}
+
+function deriveSessionTitle(messages: AiMessage[], fallback = "") {
+  const firstUser = messages.find((message) => message.role === "user");
+  const text = firstUser?.content.replace(/\s+/g, " ").trim() ?? "";
+  if (!text) return fallback;
+  return text.length > 24 ? `${text.slice(0, 24)}…` : text;
+}
+
+function normalizeAiMessages(value: unknown): AiMessage[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((message) => {
+    if (!message || typeof message !== "object") return [];
+    const item = message as Partial<AiMessage>;
+    if (
+      (item.role !== "user" && item.role !== "assistant") ||
+      typeof item.content !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        id: typeof item.id === "string" ? item.id : createId("message"),
+        role: item.role,
+        content: item.content,
+        createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+      },
+    ];
+  });
+}
+
+function normalizeChatSessions(
+  value: unknown,
+  fallbackMessages: AiMessage[],
+): ChatSession[] {
+  if (Array.isArray(value)) {
+    const sessions = value.flatMap((session) => {
+      if (!session || typeof session !== "object") return [];
+      const item = session as Partial<ChatSession>;
+      const messages = normalizeAiMessages(item.messages);
+      return [
+        {
+          id: typeof item.id === "string" ? item.id : createId("chat"),
+          title:
+            typeof item.title === "string" && item.title.trim()
+              ? item.title
+              : deriveSessionTitle(messages),
+          createdAt:
+            typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+          updatedAt:
+            typeof item.updatedAt === "number" ? item.updatedAt : Date.now(),
+          messages,
+        },
+      ];
+    });
+    if (sessions.length) return sessions;
+  }
+  return [createEmptyChatSession(fallbackMessages)];
 }
 
 function readLocalStorage(key: string) {
@@ -589,6 +677,7 @@ function persistCharacters(characters: Character[]) {
 
 function createEmptyProject(): ProjectRecord {
   const now = Date.now();
+  const session = createEmptyChatSession();
   return {
     id: createId("project"),
     name: "",
@@ -604,6 +693,8 @@ function createEmptyProject(): ProjectRecord {
     storyDesign: emptyStoryDesign(),
     storyMaterials: [],
     aiMessages: [],
+    chatSessions: [session],
+    activeChatSessionId: session.id,
     planVersions: [],
     activePlanVersionId: null,
     activePageId: null,
@@ -629,6 +720,16 @@ function normalizeProject(value: unknown): ProjectRecord | null {
     candidate.format === "story" || candidate.format === "post"
       ? candidate.format
       : null;
+  const fallbackMessages = normalizeAiMessages(candidate.aiMessages);
+  const chatSessions = normalizeChatSessions(
+    candidate.chatSessions,
+    fallbackMessages,
+  );
+  const activeChatSessionId =
+    typeof candidate.activeChatSessionId === "string" &&
+    chatSessions.some((session) => session.id === candidate.activeChatSessionId)
+      ? candidate.activeChatSessionId
+      : chatSessions[0].id;
   return {
     ...createEmptyProject(),
     ...candidate,
@@ -715,24 +816,11 @@ function normalizeProject(value: unknown): ProjectRecord | null {
           ];
         })
       : [],
-    aiMessages: Array.isArray(candidate.aiMessages)
-      ? candidate.aiMessages.flatMap((message) => {
-          if (!message || typeof message !== "object") return [];
-          const item = message as Partial<AiMessage>;
-          if (
-            (item.role !== "user" && item.role !== "assistant") ||
-            typeof item.content !== "string"
-          ) {
-            return [];
-          }
-          return [{
-            id: typeof item.id === "string" ? item.id : createId("message"),
-            role: item.role,
-            content: item.content,
-            createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
-          }];
-        })
-      : [],
+    aiMessages:
+      chatSessions.find((session) => session.id === activeChatSessionId)
+        ?.messages ?? fallbackMessages,
+    chatSessions,
+    activeChatSessionId,
     planVersions: Array.isArray(candidate.planVersions)
       ? candidate.planVersions.flatMap((version) => {
           if (!version || typeof version !== "object") return [];
@@ -953,6 +1041,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   storyDesign: INITIAL_PROJECT.storyDesign,
   storyMaterials: INITIAL_PROJECT.storyMaterials,
   aiMessages: INITIAL_PROJECT.aiMessages,
+  chatSessions: INITIAL_PROJECT.chatSessions,
+  activeChatSessionId: INITIAL_PROJECT.activeChatSessionId,
   planVersions: INITIAL_PROJECT.planVersions,
   activePlanVersionId: INITIAL_PROJECT.activePlanVersionId,
   activePageId: INITIAL_PROJECT.activePageId,
@@ -1040,6 +1130,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         storyDesign: emptyProject.storyDesign,
         storyMaterials: emptyProject.storyMaterials,
         aiMessages: emptyProject.aiMessages,
+        chatSessions: emptyProject.chatSessions,
+        activeChatSessionId: emptyProject.activeChatSessionId,
         planVersions: emptyProject.planVersions,
         activePlanVersionId: emptyProject.activePlanVersionId,
         activePageId: emptyProject.activePageId,
@@ -1082,6 +1174,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       storyDesign: project.storyDesign,
       storyMaterials: project.storyMaterials,
       aiMessages: project.aiMessages,
+      chatSessions: project.chatSessions,
+      activeChatSessionId: project.activeChatSessionId,
       planVersions: project.planVersions,
       activePlanVersionId: project.activePlanVersionId,
       activePageId: project.activePageId,
@@ -1227,7 +1321,88 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     });
   },
 
-  setAiMessages: (aiMessages) => updateProject({ aiMessages }),
+  setAiMessages: (aiMessages) => {
+    const current = get();
+    const capped = aiMessages.slice(-MAX_SESSION_MESSAGES);
+    const chatSessions = current.chatSessions.map((session) =>
+      session.id === current.activeChatSessionId
+        ? {
+            ...session,
+            messages: capped,
+            title: deriveSessionTitle(capped, session.title),
+            updatedAt: Date.now(),
+          }
+        : session,
+    );
+    updateProject({ aiMessages: capped, chatSessions });
+  },
+
+  createChatSession: () => {
+    const current = get();
+    const active = current.chatSessions.find(
+      (session) => session.id === current.activeChatSessionId,
+    );
+    if (active && active.messages.length === 0 && current.aiMessages.length === 0) {
+      return;
+    }
+    const session = createEmptyChatSession();
+    updateProject({
+      chatSessions: [session, ...current.chatSessions].slice(0, MAX_CHAT_SESSIONS),
+      activeChatSessionId: session.id,
+      aiMessages: [],
+    });
+  },
+
+  setActiveChatSession: (sessionId) => {
+    const current = get();
+    const session = current.chatSessions.find((item) => item.id === sessionId);
+    if (!session || session.id === current.activeChatSessionId) return;
+    updateProject({
+      activeChatSessionId: session.id,
+      aiMessages: session.messages,
+    });
+  },
+
+  clearActiveChatSession: () => {
+    const current = get();
+    const chatSessions = current.chatSessions.map((session) =>
+      session.id === current.activeChatSessionId
+        ? {
+            ...session,
+            title: "",
+            messages: [],
+            updatedAt: Date.now(),
+          }
+        : session,
+    );
+    updateProject({ aiMessages: [], chatSessions });
+  },
+
+  deleteChatSession: (sessionId) => {
+    const current = get();
+    const remaining = current.chatSessions.filter(
+      (session) => session.id !== sessionId,
+    );
+    if (remaining.length === 0) {
+      const session = createEmptyChatSession();
+      updateProject({
+        chatSessions: [session],
+        activeChatSessionId: session.id,
+        aiMessages: [],
+      });
+      return;
+    }
+    const nextActive =
+      current.activeChatSessionId === sessionId
+        ? remaining[0]
+        : remaining.find((session) => session.id === current.activeChatSessionId) ??
+          remaining[0];
+    updateProject({
+      chatSessions: remaining,
+      activeChatSessionId: nextActive.id,
+      aiMessages: nextActive.messages,
+    });
+  },
 
   setActivePageId: (activePageId) => updateProject({ activePageId }),
 
@@ -1500,6 +1675,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       storyDesign: emptyStoryDesign(),
       storyMaterials: [],
       aiMessages: [],
+      chatSessions: project.chatSessions,
+      activeChatSessionId: project.activeChatSessionId,
       planVersions: [],
       activePlanVersionId: null,
       activePageId: null,

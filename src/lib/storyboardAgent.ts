@@ -304,7 +304,7 @@ Current global story design (project prompt):\n${JSON.stringify(context.storyDes
 
 Current storyboard pages (canvas):\n${JSON.stringify(pages, null, 2)}
 
-Selected characters:\n${mascotContext}
+Selected characters (from @mentions or the current cast; use each character's name, background, and reference images):\n${mascotContext}
 
 Story materials:\n${materials || "None"}
 
@@ -330,6 +330,18 @@ Operate via actions. Preserve page ids when editing existing pages.`,
       text: `Attached file ${context.attachment.name}:\n${context.attachment.text}`,
     });
   }
+  context.selectedCharacters.forEach((character) => {
+    const cover = character.images[0];
+    if (!cover?.dataUrl) return;
+    content.push({
+      type: "image_url",
+      image_url: { url: cover.dataUrl },
+    });
+    content.push({
+      type: "text",
+      text: `Reference image for character "${character.name || "Unnamed"}".`,
+    });
+  });
 
   return content;
 }

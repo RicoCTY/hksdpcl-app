@@ -162,3 +162,31 @@ summary:focus-visible {
 [data-theme="dark"] .character-portrait-empty {
   background: var(--muted);
 }
+
+@keyframes chat-status-flicker {
+  0%,
+  100% {
+    opacity: 0.34;
+  }
+  42% {
+    opacity: 1;
+  }
+  58% {
+    opacity: 1;
+  }
+}
+
+.chat-status-flicker {
+  animation: chat-status-flicker 1.4s ease-in-out infinite;
+}
+
+.mention-chip {
+  vertical-align: middle;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-status-flicker {
+    animation: none;
+    opacity: 0.88;
+  }
+}

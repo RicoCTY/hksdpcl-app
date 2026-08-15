@@ -41,6 +41,7 @@ const settingsSectionIds: SettingsSectionId[] = [
   "models",
   "appearance",
 ];
+const settingsSectionOffset = 32;
 
 function maskApiKey(key: string) {
   if (key.length <= 4) return "••••";
@@ -372,65 +373,84 @@ export function SettingsView() {
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [activeSection, setActiveSection] =
     useState<SettingsSectionId>("general");
-  const settingsRootRef = useRef<HTMLDivElement>(null);
   const settingsContentRef = useRef<HTMLDivElement>(null);
+  const programmaticScrollRef = useRef(false);
+  const programmaticScrollTimerRef = useRef(0);
 
   const locale = (i18n.language === "en" ? "en" : "zh-Hant") as AppLocale;
 
   useEffect(() => {
-    const settingsRoot = settingsRootRef.current;
     const scrollContainer = settingsContentRef.current;
-    if (!settingsRoot || !scrollContainer) return;
-    const outerScrollContainer = settingsRoot.closest<HTMLElement>(".aurora-wash");
-    const scrollContainers = [scrollContainer, outerScrollContainer].filter(
-      (container, index, containers): container is HTMLElement =>
-        Boolean(container) && containers.indexOf(container) === index,
-    );
+    if (!scrollContainer) return;
 
     const updateActiveSection = () => {
-      const anchor = settingsRoot.getBoundingClientRect().top + 40;
-      const reachedBottom = scrollContainers.some(
-        (container) =>
-          container.scrollHeight > container.clientHeight &&
-          container.scrollTop + container.clientHeight >=
-            container.scrollHeight - 8,
-      );
+      const containerTop = scrollContainer.getBoundingClientRect().top;
+      const reachedBottom =
+        scrollContainer.scrollHeight > scrollContainer.clientHeight &&
+        scrollContainer.scrollTop + scrollContainer.clientHeight >=
+          scrollContainer.scrollHeight - 8;
       if (reachedBottom) {
         setActiveSection(settingsSectionIds[settingsSectionIds.length - 1]);
         return;
       }
-      let current: SettingsSectionId = "general";
+
+      let current: SettingsSectionId = settingsSectionIds[0];
       settingsSectionIds.forEach((sectionId) => {
-        const section = settingsRoot.querySelector<HTMLElement>(
-          `#settings-${sectionId}`,
-        );
-        if (section && section.getBoundingClientRect().top <= anchor) {
+        const section = document.getElementById(`settings-${sectionId}`);
+        if (
+          section &&
+          section.getBoundingClientRect().top - containerTop <=
+            settingsSectionOffset
+        ) {
           current = sectionId;
         }
       });
       setActiveSection(current);
     };
 
-    updateActiveSection();
-    scrollContainers.forEach((container) =>
-      container.addEventListener("scroll", updateActiveSection, {
-        passive: true,
-      }),
-    );
-    window.addEventListener("resize", updateActiveSection);
+    const onScroll = () => {
+      if (programmaticScrollRef.current) return;
+      updateActiveSection();
+    };
+
+    const endProgrammaticScroll = () => {
+      programmaticScrollRef.current = false;
+    };
+
+    const onUserScrollIntent = () => {
+      programmaticScrollRef.current = false;
+    };
+
+    scrollContainer.addEventListener("scroll", onScroll, { passive: true });
+    scrollContainer.addEventListener("scrollend", endProgrammaticScroll);
+    scrollContainer.addEventListener("wheel", onUserScrollIntent, {
+      passive: true,
+    });
+    scrollContainer.addEventListener("touchstart", onUserScrollIntent, {
+      passive: true,
+    });
+    window.addEventListener("resize", onScroll);
     return () => {
-      scrollContainers.forEach((container) =>
-        container.removeEventListener("scroll", updateActiveSection),
-      );
-      window.removeEventListener("resize", updateActiveSection);
+      window.clearTimeout(programmaticScrollTimerRef.current);
+      scrollContainer.removeEventListener("scroll", onScroll);
+      scrollContainer.removeEventListener("scrollend", endProgrammaticScroll);
+      scrollContainer.removeEventListener("wheel", onUserScrollIntent);
+      scrollContainer.removeEventListener("touchstart", onUserScrollIntent);
+      window.removeEventListener("resize", onScroll);
     };
   }, []);
 
   const scrollToSection = (section: SettingsSectionId) => {
     setActiveSection(section);
-    document
-      .getElementById(`settings-${section}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    programmaticScrollRef.current = true;
+    window.clearTimeout(programmaticScrollTimerRef.current);
+    document.getElementById(`settings-${section}`)?.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    });
+    programmaticScrollTimerRef.current = window.setTimeout(() => {
+      programmaticScrollRef.current = false;
+    }, reduceMotion ? 0 : 800);
   };
 
   const languageOptions: { id: AppLocale; label: string }[] = [
@@ -453,10 +473,7 @@ export function SettingsView() {
   ];
 
   return (
-    <div
-      ref={settingsRootRef}
-      className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 py-8 xl:flex-row xl:gap-14 xl:px-10"
-    >
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col px-6 py-8 xl:flex-row xl:gap-14 xl:px-10">
       <aside className="mb-9 shrink-0 xl:mb-0 xl:w-52">
         <div className="mb-6">
           <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-foreground">
@@ -472,8 +489,9 @@ export function SettingsView() {
                 key={id}
                 type="button"
                 onClick={() => scrollToSection(id)}
+                aria-current={active ? "true" : undefined}
                 className={cn(
-                  "flex h-10 items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold outline-none transition-colors",
+                  "flex h-10 cursor-pointer items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold outline-none transition-colors",
                   active
                     ? "bg-muted text-foreground"
                     : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",

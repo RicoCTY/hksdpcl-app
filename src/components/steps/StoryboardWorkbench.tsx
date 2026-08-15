@@ -23,6 +23,7 @@ import {
 } from "@/components/workbench/ChatPanel";
 import { DesignSheet } from "@/components/workbench/DesignSheet";
 import { cn } from "@/lib/utils";
+import { parseMentionedCharacters } from "@/lib/characterMentions";
 import { PoeApiError } from "@/lib/poeApi";
 import {
   applyAgentActions,
@@ -72,18 +73,23 @@ export function StoryboardWorkbench() {
   const format = useProjectStore((s) => s.format);
   const referenceImageDataUrl = useProjectStore((s) => s.referenceImageDataUrl);
   const characters = useProjectStore((s) => s.characters);
-  const selectedCharacterIds = useProjectStore((s) => s.selectedCharacterIds);
   const imagePages = useProjectStore((s) => s.imagePages);
   const generatedImages = useProjectStore((s) => s.generatedImages);
   const aiMessages = useProjectStore((s) => s.aiMessages);
   const activePageId = useProjectStore((s) => s.activePageId);
   const setIdeaText = useProjectStore((s) => s.setIdeaText);
   const setAiMessages = useProjectStore((s) => s.setAiMessages);
+  const chatSessions = useProjectStore((s) => s.chatSessions);
+  const activeChatSessionId = useProjectStore((s) => s.activeChatSessionId);
+  const createChatSession = useProjectStore((s) => s.createChatSession);
+  const setActiveChatSession = useProjectStore((s) => s.setActiveChatSession);
+  const clearActiveChatSession = useProjectStore((s) => s.clearActiveChatSession);
+  const deleteChatSession = useProjectStore((s) => s.deleteChatSession);
   const setStoryDesign = useProjectStore((s) => s.setStoryDesign);
   const addStoryMaterial = useProjectStore((s) => s.addStoryMaterial);
   const setReferenceImage = useProjectStore((s) => s.setReferenceImage);
-  const toggleSelectedCharacter = useProjectStore(
-    (s) => s.toggleSelectedCharacter,
+  const setSelectedCharacterIds = useProjectStore(
+    (s) => s.setSelectedCharacterIds,
   );
   const setImagePages = useProjectStore((s) => s.setImagePages);
   const updateImagePage = useProjectStore((s) => s.updateImagePage);
@@ -318,6 +324,21 @@ export function StoryboardWorkbench() {
       `${nextMessage || t("workflow.idea.attachmentOnly")}${
         attachment ? `\n[${attachment.kind}: ${attachment.name}]` : ""
       }`.trim();
+
+    const mentionedCharacters = parseMentionedCharacters(
+      nextMessage,
+      availableCharacters,
+      t("characters.untitled"),
+    );
+    if (mentionedCharacters.length) {
+      const currentIds = useProjectStore.getState().selectedCharacterIds;
+      setSelectedCharacterIds([
+        ...new Set([
+          ...currentIds,
+          ...mentionedCharacters.map((character) => character.id),
+        ]),
+      ]);
+    }
 
     setAiMessages([
       ...aiMessages,
@@ -671,14 +692,44 @@ export function StoryboardWorkbench() {
         onClearAttachment={() => setAttachment(null)}
         onAttachmentChange={onAttachmentChange}
         availableCharacters={availableCharacters}
-        selectedCharacterIds={selectedCharacterIds}
-        onToggleCharacter={toggleSelectedCharacter}
+        onAddCharacter={(characterId) => {
+          const current = useProjectStore.getState().selectedCharacterIds;
+          if (current.includes(characterId)) return;
+          setSelectedCharacterIds([...current, characterId]);
+        }}
         activePage={activePage}
         activePageNumber={activePageNumber}
         isGenerating={isGenerating}
+        isDrawing={Boolean(generatingPageId)}
         error={error}
         onSend={() => void sendMessage()}
         onCancel={cancelGeneration}
+        sessions={chatSessions}
+        activeSessionId={activeChatSessionId}
+        onNewSession={() => {
+          createChatSession();
+          setMessage("");
+          setAttachment(null);
+          setError("");
+        }}
+        onSelectSession={(sessionId) => {
+          setActiveChatSession(sessionId);
+          setMessage("");
+          setAttachment(null);
+          setError("");
+        }}
+        onClearSession={() => {
+          clearActiveChatSession();
+          setMessage("");
+          setAttachment(null);
+          setError("");
+        }}
+        onDeleteSession={(sessionId) => {
+          deleteChatSession(sessionId);
+          setMessage("");
+          setAttachment(null);
+          setError("");
+        }}
       />
     </div>
   );
