@@ -5,6 +5,7 @@ import {
   Bot,
   ChevronDown,
   Check,
+  CircleHelp,
   Cpu,
   Eye,
   EyeOff,
@@ -35,11 +36,12 @@ import {
 } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
 
-type SettingsSectionId = "general" | "models" | "appearance";
+type SettingsSectionId = "general" | "models" | "appearance" | "help";
 const settingsSectionIds: SettingsSectionId[] = [
   "general",
   "models",
   "appearance",
+  "help",
 ];
 const settingsSectionOffset = 32;
 
@@ -470,6 +472,7 @@ export function SettingsView() {
       label: t("settings.navigation.appearance"),
       icon: Palette,
     },
+    { id: "help", label: t("settings.navigation.help"), icon: CircleHelp },
   ];
 
   return (
@@ -721,6 +724,28 @@ export function SettingsView() {
               </div>
             </div>
           </Card>
+          </SettingsSection>
+
+          <SettingsSection
+            id="help"
+            icon={CircleHelp}
+            title={t("settings.helpTitle")}
+          >
+            <Card>
+              <CardContent className="pt-5">
+                <p className="text-xs font-semibold text-muted-foreground">
+                  {t("settings.designerLabel")}
+                </p>
+                <a
+                  href="https://github.com/RicoCTY"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-flex text-sm font-bold text-primary underline-offset-4 hover:underline"
+                >
+                  {t("settings.designerName")}
+                </a>
+              </CardContent>
+            </Card>
           </SettingsSection>
 
           <Button

@@ -79,7 +79,8 @@
     "navigation": {
       "general": "連線設定",
       "models": "AI 模型",
-      "appearance": "外觀"
+      "appearance": "外觀",
+      "help": "說明"
     },
     "generalTitle": "Poe 連線",
     "poeLabel": "API 金鑰",
@@ -126,6 +127,9 @@
     "languageDescription": "選擇工作室使用的語言",
     "languageZhHant": "繁體中文",
     "languageEnglish": "English",
+    "helpTitle": "說明",
+    "designerLabel": "設計者",
+    "designerName": "RicoCTY",
     "versionLabel": "版本",
     "version": "v{{version}}",
     "backHome": "返回主頁"

@@ -79,7 +79,8 @@
     "navigation": {
       "general": "Connection",
       "models": "AI models",
-      "appearance": "Appearance"
+      "appearance": "Appearance",
+      "help": "Help"
     },
     "generalTitle": "Poe connection",
     "poeLabel": "API key",
@@ -126,6 +127,9 @@
     "languageDescription": "Choose the language used throughout the studio",
     "languageZhHant": "繁體中文",
     "languageEnglish": "English",
+    "helpTitle": "Help",
+    "designerLabel": "Designer",
+    "designerName": "RicoCTY",
     "versionLabel": "Version",
     "version": "v{{version}}",
     "backHome": "Back to home"
