@@ -71,6 +71,7 @@ interface ChatPanelProps {
   isGenerating: boolean;
   isDrawing?: boolean;
   error: string;
+  onRetry?: () => void;
   onSend: () => void;
   onCancel: () => void;
   sessions: ChatSession[];
@@ -316,6 +317,7 @@ export function ChatPanel({
   isGenerating,
   isDrawing = false,
   error,
+  onRetry,
   onSend,
   onCancel,
   sessions,
@@ -649,7 +651,16 @@ export function ChatPanel({
       <div className="relative shrink-0 px-3 pt-1 pb-4">
         {error && (
           <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-            {error}
+            <p>{error}</p>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="mt-1.5 font-medium underline underline-offset-2 outline-none hover:text-red-800 dark:hover:text-red-200"
+              >
+                {t("workflow.workbench.retryGeneration")}
+              </button>
+            )}
           </div>
         )}
 

@@ -1,4 +1,5 @@
 const POE_API_URL = "https://api.poe.com/v1/chat/completions";
+const POE_RESPONSES_URL = "https://api.poe.com/v1/responses";
 const POE_IMAGES_URL = "https://api.poe.com/v1/images";
 
 export type PoePart = { type: string; [key: string]: unknown };
@@ -14,6 +15,10 @@ export interface PoeImageResult {
   alt?: string;
 }
 
+export interface PoeAudioResult {
+  url: string;
+}
+
 export class PoeApiError extends Error {
   readonly status: number;
   readonly code?: string;
@@ -24,6 +29,13 @@ export class PoeApiError extends Error {
     this.status = status;
     this.code = code;
   }
+}
+
+export function isNetworkFailure(error: unknown) {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+  if (error instanceof PoeApiError && error.status === 0) return true;
+  if (error instanceof TypeError) return true;
+  return false;
 }
 
 interface PoeCompletionResponse {
@@ -166,6 +178,21 @@ export function toImageAspect(model: string, aspectRatio: string | null | undefi
   return fallback;
 }
 
+/** Minimax Speech needs these or it falls back to Mandarin instead of Cantonese. */
+export const MINIMAX_CANTONESE_VOICE = {
+  voice_id: "Chinese (Mandarin)_HK_Flight_Attendant",
+  language_boost: "Chinese,Yue",
+} as const;
+
+export function usesMinimaxSpeech(model: string) {
+  return /minimax/i.test(model.trim());
+}
+
+/** Gemini on Poe is documented against /v1/responses, not chat completions. */
+export function usesPoeResponsesEndpoint(model: string) {
+  return /gemini/i.test(model.trim());
+}
+
 export async function poeChat({
   apiKey,
   model,
@@ -175,6 +202,7 @@ export async function poeChat({
   temperature = 0.7,
   allowEmptyText = false,
   aspect,
+  extraBody,
 }: {
   apiKey: string;
   model: string;
@@ -186,9 +214,28 @@ export async function poeChat({
   allowEmptyText?: boolean;
   /** Seedream-style chat image bots accept aspect in the request body. */
   aspect?: string;
+  /** Extra OpenAI-compatible body fields (e.g. Minimax voice_id). */
+  extraBody?: Record<string, unknown>;
 }) {
   if (!apiKey.trim()) throw new PoeApiError("請先喺設定加入 Poe API 金鑰", 401);
   if (!model.trim()) throw new PoeApiError("請先設定此工作流程的 Poe 模型", 400);
+
+  if (usesPoeResponsesEndpoint(model) && !aspect) {
+    try {
+      const response = await poeResponses({
+        apiKey,
+        model,
+        messages,
+        signal,
+        maxTokens,
+        temperature,
+      });
+      return { text: response.text, raw: response.raw, content: response.text };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      // Fall through to chat completions if Responses is unavailable.
+    }
+  }
 
   const payload: Record<string, unknown> = {
     model: model.trim(),
@@ -196,6 +243,7 @@ export async function poeChat({
     max_tokens: maxTokens,
     temperature,
     stream: false,
+    ...extraBody,
   };
   if (aspect && supportsChatAspect(model)) {
     payload.aspect = aspect;
@@ -231,6 +279,165 @@ export async function poeChat({
 export async function poeChatJson<T>(args: Parameters<typeof poeChat>[0]) {
   const response = await poeChat({ ...args, allowEmptyText: false });
   return { data: extractJson<T>(response.text), text: response.text };
+}
+
+function toResponsesContent(content: PoeText) {
+  if (typeof content === "string") return content;
+  const parts: Array<Record<string, string>> = [];
+  content.forEach((part) => {
+    if (part.type === "image_url") {
+      const imageUrl = part.image_url;
+      const url =
+        typeof imageUrl === "string"
+          ? imageUrl
+          : imageUrl && typeof imageUrl === "object"
+            ? String((imageUrl as { url?: string }).url ?? "")
+            : "";
+      if (url) parts.push({ type: "input_image", image_url: url });
+      return;
+    }
+    const text =
+      typeof part.text === "string"
+        ? part.text
+        : typeof part.content === "string"
+          ? part.content
+          : "";
+    if (text) parts.push({ type: "input_text", text });
+  });
+  return parts;
+}
+
+function toResponsesInput(messages: PoeMessage[]) {
+  const instructions: string[] = [];
+  const input: Array<Record<string, unknown>> = [];
+  messages.forEach((message) => {
+    if (message.role === "system") {
+      const text =
+        typeof message.content === "string"
+          ? message.content
+          : contentToText(message.content);
+      if (text) instructions.push(text);
+      return;
+    }
+    input.push({
+      role: message.role,
+      content: toResponsesContent(message.content),
+    });
+  });
+  return { instructions: instructions.join("\n\n"), input };
+}
+
+function extractResponseText(body: unknown) {
+  if (!body || typeof body !== "object") return "";
+  const record = body as Record<string, unknown>;
+  if (typeof record.output_text === "string" && record.output_text.trim()) {
+    return record.output_text.trim();
+  }
+  const chunks: string[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const item = value as Record<string, unknown>;
+    if (typeof item.text === "string" && item.text.trim()) {
+      const type = typeof item.type === "string" ? item.type : "";
+      if (!type || type.includes("text") || type === "output_text") {
+        chunks.push(item.text);
+      }
+    }
+    Object.values(item).forEach(visit);
+  };
+  visit(record.output);
+  return chunks.join("\n").trim();
+}
+
+/** Poe Responses API with optional live web search. */
+export async function poeResponses({
+  apiKey,
+  model,
+  messages,
+  signal,
+  maxTokens = 1800,
+  temperature = 0.7,
+  webSearch = false,
+}: {
+  apiKey: string;
+  model: string;
+  messages: PoeMessage[];
+  signal?: AbortSignal;
+  maxTokens?: number;
+  temperature?: number;
+  webSearch?: boolean;
+}) {
+  if (!apiKey.trim()) throw new PoeApiError("請先喺設定加入 Poe API 金鑰", 401);
+  if (!model.trim()) throw new PoeApiError("請先設定此工作流程的 Poe 模型", 400);
+
+  const { instructions, input } = toResponsesInput(messages);
+  const payload: Record<string, unknown> = {
+    model: model.trim(),
+    input,
+    max_output_tokens: maxTokens,
+    temperature,
+    stream: false,
+  };
+  if (instructions) payload.instructions = instructions;
+  if (webSearch) {
+    payload.tools = [{ type: "web_search_preview" }];
+    payload.include = ["web_search_call.action.sources"];
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(POE_RESPONSES_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey.trim()}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new PoeApiError("無法連接 Poe，請檢查網絡連線", 0);
+  }
+
+  const body = await parseResponse(response);
+  const text = extractResponseText(body);
+  if (!text) {
+    throw new PoeApiError("Poe 回應了空白內容，請重新嘗試", 502);
+  }
+  return { text, raw: body };
+}
+
+export async function poeResponsesJson<T>(
+  args: Parameters<typeof poeResponses>[0],
+) {
+  const response = await poeResponses(args);
+  return { data: extractJson<T>(response.text), text: response.text };
+}
+
+/** Prefer live web search via Responses API; fall back to chat completions. */
+export async function poeChatJsonWithSearch<T>(
+  args: Parameters<typeof poeChat>[0],
+) {
+  try {
+    return await poeResponsesJson<T>({
+      apiKey: args.apiKey,
+      model: args.model,
+      messages: args.messages,
+      signal: args.signal,
+      maxTokens: args.maxTokens,
+      temperature: args.temperature,
+      webSearch: true,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    return poeChatJson<T>(args);
+  }
 }
 
 /** Chat call tuned for image models that often return media-only content. */
@@ -373,6 +580,102 @@ export function extractImageResults(raw: unknown, text: string): PoeImageResult[
   const directUrls = /https?:\/\/[^\s)]+/gi;
   for (const match of text.matchAll(directUrls)) add(match[0].replace(/[.,]+$/, ""));
   return results;
+}
+
+export function extractAudioResults(raw: unknown, text: string): PoeAudioResult[] {
+  const results: PoeAudioResult[] = [];
+  const seen = new Set<string>();
+  const add = (url: unknown) => {
+    if (typeof url !== "string") return;
+    const cleaned = url.replace(/[.,)]+$/, "");
+    if (!isAudioUrl(cleaned) || seen.has(cleaned)) return;
+    seen.add(cleaned);
+    results.push({ url: cleaned });
+  };
+
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    const audioUrl = record.audio_url;
+    if (typeof audioUrl === "string") add(audioUrl);
+    else if (audioUrl && typeof audioUrl === "object") {
+      add((audioUrl as Record<string, unknown>).url);
+    }
+    const contentType =
+      typeof record.content_type === "string"
+        ? record.content_type
+        : typeof record.mime_type === "string"
+          ? record.mime_type
+          : "";
+    if (contentType.toLowerCase().startsWith("audio/")) {
+      add(record.url);
+      add(record.download_url);
+    }
+    add(record.audio);
+    add(record.url);
+    add(record.download_url);
+    Object.values(record).forEach(visit);
+  };
+  visit(raw);
+
+  const markdownAudio = /\[(?:audio|voice|speech)?[^\]]*\]\((https?:\/\/[^)]+|data:audio\/[^)]+)\)/gi;
+  for (const match of text.matchAll(markdownAudio)) add(match[1]);
+  const directUrls = /https?:\/\/[^\s)]+/gi;
+  for (const match of text.matchAll(directUrls)) add(match[0]);
+  const dataUrls = /data:audio\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi;
+  for (const match of text.matchAll(dataUrls)) add(match[0]);
+  return results;
+}
+
+function isAudioUrl(url: string) {
+  if (/^data:audio\//i.test(url)) return true;
+  if (!/^https?:\/\//i.test(url)) return false;
+  if (/\.(mp3|wav|m4a|aac|ogg|opus|webm|flac)(\?|#|$)/i.test(url)) return true;
+  return /\/(audio|speech|voice|tts|media)\//i.test(url) && !/\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(url);
+}
+
+/** Chat call tuned for speech models that often return media-only content. */
+export async function poeGenerateSpeech({
+  apiKey,
+  model,
+  text,
+  signal,
+}: {
+  apiKey: string;
+  model: string;
+  text: string;
+  signal?: AbortSignal;
+}) {
+  if (!text.trim()) throw new PoeApiError("旁白文案不能為空", 400);
+  const response = await poeChat({
+    apiKey,
+    model,
+    allowEmptyText: true,
+    maxTokens: 400,
+    temperature: 0.3,
+    signal,
+    extraBody: usesMinimaxSpeech(model) ? { ...MINIMAX_CANTONESE_VOICE } : undefined,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a text-to-speech engine. Convert the user's script into spoken audio only. Do not add extra words, titles, or commentary. Return the audio file.",
+      },
+      {
+        role: "user",
+        content: text.trim(),
+      },
+    ],
+  });
+  const audios = extractAudioResults(response.raw, response.text);
+  if (!audios.length) {
+    throw new PoeApiError("Poe 語音模型沒有回傳可用音訊", 502);
+  }
+  return { audios, text: response.text, raw: response.raw };
 }
 
 export const POE_API_BASE_URL = "https://api.poe.com/v1";

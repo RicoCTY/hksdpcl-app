@@ -178,6 +178,41 @@ export function storyDesignToBrief(design: StoryDesign): CreativeBrief {
   };
 }
 
+export function imagesLinkedToPages(
+  images: GeneratedImage[],
+  pages: ImagePage[],
+) {
+  const pageIds = new Set(pages.map((page) => page.id));
+  const linkedIds = new Set(
+    pages.flatMap((page) => [
+      ...page.imageIds,
+      ...(page.selectedImageId ? [page.selectedImageId] : []),
+    ]),
+  );
+  return images.filter(
+    (image) =>
+      linkedIds.has(image.id) ||
+      (typeof image.pageId === "string" && pageIds.has(image.pageId)),
+  );
+}
+
+export function selectedImagesForPages(
+  images: GeneratedImage[],
+  pages: ImagePage[],
+) {
+  return pages.flatMap((page) => {
+    const selected =
+      page.selectedImageId &&
+      images.find((image) => image.id === page.selectedImageId);
+    if (selected) return [selected];
+    for (const id of page.imageIds) {
+      const match = images.find((image) => image.id === id);
+      if (match) return [match];
+    }
+    return [];
+  });
+}
+
 function emptyImagePage(partial?: Partial<ImagePage>): ImagePage {
   return {
     id: partial?.id ?? createId("page"),
@@ -240,6 +275,8 @@ export interface ProjectRecord {
   selectedImageId: string | null;
   selectedCaption: string;
   voiceoverGenerated: boolean;
+  /** Page ids still waiting for image generation after a disconnect or reload. */
+  imageGenerationQueue: string[];
 }
 
 export interface ProjectState {
@@ -276,6 +313,7 @@ export interface ProjectState {
   selectedImageId: string | null;
   selectedCaption: string;
   voiceoverGenerated: boolean;
+  imageGenerationQueue: string[];
   characters: Character[];
   activeCharacterId: string | null;
   /** Ephemeral workbench UI — not persisted with the project. */
@@ -336,6 +374,7 @@ export interface ProjectState {
   setSelectedImageId: (selectedImageId: string | null) => void;
   setSelectedCaption: (selectedCaption: string) => void;
   setVoiceoverGenerated: (voiceoverGenerated: boolean) => void;
+  setImageGenerationQueue: (imageGenerationQueue: string[]) => void;
   setActiveCharacterId: (activeCharacterId: string | null) => void;
   setWorkbenchDesignOpen: (open: boolean) => void;
   toggleWorkbenchDesignOpen: () => void;
@@ -379,8 +418,8 @@ const LEGACY_CHARACTER_BACKGROUND_STORAGE_KEY =
 
 const DEFAULT_MODEL_SETTINGS: ModelSettings = {
   lightweight: "gpt-4.1-mini",
-  text: "gemini-3.6-flash",
-  images: "seedream-4.5",
+  text: "gemini-3.7-flash",
+  images: "seedream-5.0-lite",
   voice: "minimax-speech-2.8",
   customModels: {
     lightweight: [],
@@ -526,7 +565,7 @@ function getStoredModelSettings(): ModelSettings {
       brief?: string;
       captionAudio?: string;
     };
-    const text =
+    const rawText =
       typeof parsed.text === "string" && parsed.text
         ? parsed.text
         : typeof parsed.brief === "string" &&
@@ -534,6 +573,8 @@ function getStoredModelSettings(): ModelSettings {
             parsed.brief !== "Claude-Sonnet-4.6"
           ? parsed.brief
           : DEFAULT_MODEL_SETTINGS.text;
+    const text =
+      rawText === "gemini-3.6-flash" ? DEFAULT_MODEL_SETTINGS.text : rawText;
     const voice =
       typeof parsed.voice === "string" && parsed.voice
         ? parsed.voice
@@ -583,7 +624,9 @@ function getStoredModelSettings(): ModelSettings {
       },
     );
 
-    return { ...activeModels, customModels };
+    const modelSettings = { ...activeModels, customModels };
+    if (rawText === "gemini-3.6-flash") persistModelSettings(modelSettings);
+    return modelSettings;
   } catch {
     return DEFAULT_MODEL_SETTINGS;
   }
@@ -708,6 +751,7 @@ function createEmptyProject(): ProjectRecord {
     selectedImageId: null,
     selectedCaption: "",
     voiceoverGenerated: false,
+    imageGenerationQueue: [],
   };
 }
 
@@ -730,7 +774,7 @@ function normalizeProject(value: unknown): ProjectRecord | null {
     chatSessions.some((session) => session.id === candidate.activeChatSessionId)
       ? candidate.activeChatSessionId
       : chatSessions[0].id;
-  return {
+  const project: ProjectRecord = {
     ...createEmptyProject(),
     ...candidate,
     id: candidate.id,
@@ -853,8 +897,7 @@ function normalizeProject(value: unknown): ProjectRecord | null {
       typeof candidate.activePlanVersionId === "string"
         ? candidate.activePlanVersionId
         : null,
-    activePageId:
-      typeof candidate.activePageId === "string" ? candidate.activePageId : null,
+    activePageId: null,
     selectedCharacterIds: Array.isArray(candidate.selectedCharacterIds)
       ? candidate.selectedCharacterIds.filter(
           (id): id is string => typeof id === "string",
@@ -959,6 +1002,27 @@ function normalizeProject(value: unknown): ProjectRecord | null {
     selectedCaption:
       typeof candidate.selectedCaption === "string" ? candidate.selectedCaption : "",
     voiceoverGenerated: candidate.voiceoverGenerated === true,
+    imageGenerationQueue: Array.isArray(candidate.imageGenerationQueue)
+      ? candidate.imageGenerationQueue.filter(
+          (id): id is string => typeof id === "string",
+        )
+      : [],
+  };
+  const generatedImages = imagesLinkedToPages(
+    project.generatedImages,
+    project.imagePages,
+  );
+  return {
+    ...project,
+    generatedImages,
+    selectedImageId:
+      project.selectedImageId &&
+      generatedImages.some((image) => image.id === project.selectedImageId)
+        ? project.selectedImageId
+        : null,
+    imageGenerationQueue: project.imageGenerationQueue.filter((id) =>
+      project.imagePages.some((page) => page.id === id),
+    ),
   };
 }
 
@@ -997,6 +1061,7 @@ const INITIAL_THEME_MODE = getStoredThemeMode();
 applyThemeMode(INITIAL_THEME_MODE);
 
 const INITIAL_PROJECTS = getStoredProjects();
+persistProjects(INITIAL_PROJECTS);
 const INITIAL_PROJECT = INITIAL_PROJECTS[0];
 const INITIAL_PROJECT_SORT = getStoredProjectSort();
 
@@ -1006,9 +1071,25 @@ const DEFAULT_POST_ASPECT: AspectRatio = "4:5";
 export const useProjectStore = create<ProjectState>((set, get) => {
   const updateProject = (updates: Partial<ProjectRecord>) => {
     const current = get();
+    const imagePages = updates.imagePages ?? current.imagePages;
+    const generatedImages = imagesLinkedToPages(
+      updates.generatedImages ?? current.generatedImages,
+      imagePages,
+    );
+    const selectedImageId = (() => {
+      const candidate =
+        updates.selectedImageId !== undefined
+          ? updates.selectedImageId
+          : current.selectedImageId;
+      return candidate &&
+        generatedImages.some((image) => image.id === candidate)
+        ? candidate
+        : null;
+    })();
+    const nextUpdates = { ...updates, generatedImages, selectedImageId };
     const projects = current.projects.map((project) =>
       project.id === current.projectId
-        ? { ...project, ...updates, updatedAt: Date.now() }
+        ? { ...project, ...nextUpdates, updatedAt: Date.now() }
         : project,
     );
     const updatedProject = projects.find(
@@ -1016,7 +1097,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     );
     persistProjects(projects);
     set({
-      ...updates,
+      ...nextUpdates,
       projectName: updatedProject?.name ?? current.projectName,
       projects,
     });
@@ -1045,7 +1126,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   activeChatSessionId: INITIAL_PROJECT.activeChatSessionId,
   planVersions: INITIAL_PROJECT.planVersions,
   activePlanVersionId: INITIAL_PROJECT.activePlanVersionId,
-  activePageId: INITIAL_PROJECT.activePageId,
+  activePageId: null,
   selectedCharacterIds: INITIAL_PROJECT.selectedCharacterIds,
   generatedImages: INITIAL_PROJECT.generatedImages,
   imagePages: INITIAL_PROJECT.imagePages,
@@ -1056,6 +1137,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   selectedImageId: INITIAL_PROJECT.selectedImageId,
   selectedCaption: INITIAL_PROJECT.selectedCaption,
   voiceoverGenerated: INITIAL_PROJECT.voiceoverGenerated,
+  imageGenerationQueue: INITIAL_PROJECT.imageGenerationQueue,
   characters: getStoredCharacters(),
   activeCharacterId: null,
   workbenchDesignOpen: false,
@@ -1145,6 +1227,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         selectedImageId: emptyProject.selectedImageId,
         selectedCaption: emptyProject.selectedCaption,
         voiceoverGenerated: emptyProject.voiceoverGenerated,
+        imageGenerationQueue: emptyProject.imageGenerationQueue,
       });
       return;
     }
@@ -1178,7 +1261,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       activeChatSessionId: project.activeChatSessionId,
       planVersions: project.planVersions,
       activePlanVersionId: project.activePlanVersionId,
-      activePageId: project.activePageId,
+      activePageId: null,
       selectedCharacterIds: project.selectedCharacterIds,
       generatedImages: project.generatedImages,
       imagePages: project.imagePages,
@@ -1189,8 +1272,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       selectedImageId: project.selectedImageId,
       selectedCaption: project.selectedCaption,
       voiceoverGenerated: project.voiceoverGenerated,
+      imageGenerationQueue: project.imageGenerationQueue,
       view: "home",
       activeCharacterId: null,
+      workbenchDesignOpen: false,
     });
   },
 
@@ -1404,7 +1489,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     });
   },
 
-  setActivePageId: (activePageId) => updateProject({ activePageId }),
+  setActivePageId: (activePageId) => set({ activePageId }),
 
   addPlanVersion: (version) => {
     const id = createId("plan");
@@ -1445,7 +1530,26 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
   setGeneratedImages: (generatedImages) => updateProject({ generatedImages }),
 
-  setImagePages: (imagePages) => updateProject({ imagePages }),
+  setImagePages: (imagePages) => {
+    const generatedImages = imagesLinkedToPages(
+      get().generatedImages,
+      imagePages,
+    );
+    const selectedImageId =
+      get().selectedImageId &&
+      generatedImages.some((image) => image.id === get().selectedImageId)
+        ? get().selectedImageId
+        : null;
+    const imageGenerationQueue = get().imageGenerationQueue.filter((id) =>
+      imagePages.some((page) => page.id === id),
+    );
+    updateProject({
+      imagePages,
+      generatedImages,
+      selectedImageId,
+      imageGenerationQueue,
+    });
+  },
 
   updateImagePage: (pageId, updates) => {
     const imagePages = get().imagePages.map((page) =>
@@ -1458,16 +1562,34 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     const next = emptyImagePage(page);
     updateProject({
       imagePages: [...get().imagePages, next],
-      activePageId: next.id,
     });
+    set({ activePageId: next.id });
     return next.id;
   },
 
   removeImagePage: (pageId) => {
     const imagePages = get().imagePages.filter((page) => page.id !== pageId);
+    const generatedImages = imagesLinkedToPages(
+      get().generatedImages,
+      imagePages,
+    );
     const activePageId =
       get().activePageId === pageId ? null : get().activePageId;
-    updateProject({ imagePages, activePageId });
+    const selectedImageId =
+      get().selectedImageId &&
+      generatedImages.some((image) => image.id === get().selectedImageId)
+        ? get().selectedImageId
+        : null;
+    const imageGenerationQueue = get().imageGenerationQueue.filter(
+      (id) => id !== pageId,
+    );
+    updateProject({
+      imagePages,
+      generatedImages,
+      selectedImageId,
+      imageGenerationQueue,
+    });
+    set({ activePageId });
   },
 
   reorderImagePages: (fromIndex, toIndex) => {
@@ -1502,6 +1624,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
   setVoiceoverGenerated: (voiceoverGenerated) =>
     updateProject({ voiceoverGenerated }),
+
+  setImageGenerationQueue: (imageGenerationQueue) =>
+    updateProject({ imageGenerationQueue }),
 
   setActiveCharacterId: (activeCharacterId) => set({ activeCharacterId }),
 
@@ -1690,6 +1815,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       selectedImageId: null,
       selectedCaption: "",
       voiceoverGenerated: false,
+      imageGenerationQueue: [],
       activeCharacterId: null,
     });
   },

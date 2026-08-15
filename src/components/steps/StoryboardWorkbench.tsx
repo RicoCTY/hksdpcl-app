@@ -1,8 +1,8 @@
 import {
   Clapperboard,
   Copy,
+  ImageIcon,
   LoaderCircle,
-  Plus,
   RefreshCw,
   Trash2,
   X,
@@ -24,12 +24,13 @@ import {
 import { DesignSheet } from "@/components/workbench/DesignSheet";
 import { cn } from "@/lib/utils";
 import { parseMentionedCharacters } from "@/lib/characterMentions";
-import { PoeApiError } from "@/lib/poeApi";
+import { isNetworkFailure, PoeApiError } from "@/lib/poeApi";
 import {
   applyAgentActions,
   carouselRole,
   generateStoryboardPageImage,
   runStoryboardAgentTurn,
+  userAskedToGenerateImages,
   type AgentStoreBridge,
 } from "@/lib/storyboardAgent";
 import {
@@ -103,11 +104,13 @@ export function StoryboardWorkbench() {
   );
   const setImagePages = useProjectStore((s) => s.setImagePages);
   const updateImagePage = useProjectStore((s) => s.updateImagePage);
-  const addImagePage = useProjectStore((s) => s.addImagePage);
   const removeImagePage = useProjectStore((s) => s.removeImagePage);
   const setActivePageId = useProjectStore((s) => s.setActivePageId);
   const setGeneratedImages = useProjectStore((s) => s.setGeneratedImages);
   const setSelectedImageId = useProjectStore((s) => s.setSelectedImageId);
+  const imageGenerationQueue = useProjectStore((s) => s.imageGenerationQueue);
+  const setImageGenerationQueue = useProjectStore((s) => s.setImageGenerationQueue);
+  const projectId = useProjectStore((s) => s.projectId);
 
   const [message, setMessage] = useState("");
   const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
@@ -175,13 +178,52 @@ export function StoryboardWorkbench() {
     );
   };
 
-  const generatePageImage = async (pageId: string, runId?: number) => {
+  const pendingPageIds = (pageIds: string[]) => {
+    const state = useProjectStore.getState();
+    return pageIds.filter((pageId) => {
+      const page = state.imagePages.find((item) => item.id === pageId);
+      if (!page?.imagePrompt.trim()) return false;
+      const selected =
+        page.selectedImageId &&
+        state.generatedImages.find((image) => image.id === page.selectedImageId);
+      const image =
+        selected ??
+        state.generatedImages.find((image) => page.imageIds.includes(image.id));
+      return !image;
+    });
+  };
+
+  const markGeneratingReceipt = (pageId: string) => {
+    const pageIndex =
+      useProjectStore
+        .getState()
+        .imagePages.findIndex((page) => page.id === pageId) + 1;
+    const currentMessages = useProjectStore.getState().aiMessages;
+    const last = currentMessages[currentMessages.length - 1];
+    if (last?.role !== "assistant") return;
+    const generatingReceipt: AgentReceipt = {
+      type: "generating_image",
+      pageNumber: pageIndex > 0 ? pageIndex : 1,
+    };
+    setAiMessages([
+      ...currentMessages.slice(0, -1),
+      {
+        ...last,
+        receipts: [...(last.receipts ?? []), generatingReceipt],
+      },
+    ]);
+  };
+
+  const generatePageImage = async (
+    pageId: string,
+    runId?: number,
+  ): Promise<"ok" | "aborted" | "failed"> => {
     const page = useProjectStore
       .getState()
       .imagePages.find((item) => item.id === pageId);
     if (!page?.imagePrompt.trim()) {
       setError(t("workflow.workbench.missingPrompt"));
-      return;
+      return "failed";
     }
     setError("");
     setGeneratingPageId(pageId);
@@ -203,8 +245,9 @@ export function StoryboardWorkbench() {
         referenceImageDataUrl: state.referenceImageDataUrl,
         pageIndex: pageIndex >= 0 ? pageIndex : 0,
         pageCount: state.imagePages.length,
+        signal: abortRef.current?.signal,
       });
-      if (runId != null && runId !== runIdRef.current) return;
+      if (runId != null && runId !== runIdRef.current) return "aborted";
       if (!results.length) throw new Error(t("workflow.images.noImageResult"));
 
       const image = {
@@ -226,13 +269,20 @@ export function StoryboardWorkbench() {
         selectedImageId: image.id,
       });
       setSelectedImageId(image.id);
+      return "ok";
     } catch (caught) {
-      if (runId != null && runId !== runIdRef.current) return;
+      if (runId != null && runId !== runIdRef.current) return "aborted";
+      if (caught instanceof DOMException && caught.name === "AbortError") {
+        return "aborted";
+      }
       setError(
-        caught instanceof PoeApiError || caught instanceof Error
-          ? caught.message
-          : t("workflow.images.agentError"),
+        isNetworkFailure(caught)
+          ? t("workflow.workbench.generationPausedOffline")
+          : caught instanceof PoeApiError || caught instanceof Error
+            ? caught.message
+            : t("workflow.images.agentError"),
       );
+      return "failed";
     } finally {
       if (runId == null || runId === runIdRef.current) {
         setGeneratingPageId(null);
@@ -240,13 +290,133 @@ export function StoryboardWorkbench() {
     }
   };
 
+  const runImageQueue = async (
+    pageIds: string[],
+    runId: number,
+    options?: { force?: boolean },
+  ) => {
+    let remaining = options?.force
+      ? pageIds.filter((pageId) =>
+          useProjectStore.getState().imagePages.some((page) => page.id === pageId),
+        )
+      : pendingPageIds(pageIds);
+    setImageGenerationQueue(remaining);
+
+    for (const pageId of remaining) {
+      if (runId !== runIdRef.current) return;
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setError(t("workflow.workbench.generationPausedOffline"));
+        return;
+      }
+      markGeneratingReceipt(pageId);
+      const result = await generatePageImage(pageId, runId);
+      if (result !== "ok") return;
+      remaining = useProjectStore
+        .getState()
+        .imageGenerationQueue.filter((id) => id !== pageId);
+      setImageGenerationQueue(remaining);
+    }
+  };
+
+  const startImageQueue = async (
+    pageIds: string[],
+    options?: { force?: boolean },
+  ) => {
+    if (abortRef.current) return;
+    const remaining = options?.force
+      ? pageIds.filter((pageId) =>
+          useProjectStore.getState().imagePages.some((page) => page.id === pageId),
+        )
+      : pendingPageIds(pageIds);
+    if (!remaining.length) {
+      setImageGenerationQueue([]);
+      return;
+    }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setImageGenerationQueue(remaining);
+      setError(t("workflow.workbench.generationPausedOffline"));
+      return;
+    }
+    setError("");
+    setIsGenerating(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const runId = ++runIdRef.current;
+    setImageGenerationQueue(remaining);
+    try {
+      await runImageQueue(remaining, runId, options);
+    } finally {
+      if (runId === runIdRef.current) {
+        setIsGenerating(false);
+        abortRef.current = null;
+      }
+    }
+  };
+
+  const startImageQueueRef = useRef(startImageQueue);
+  startImageQueueRef.current = startImageQueue;
+
   const cancelGeneration = () => {
     abortRef.current?.abort();
     abortRef.current = null;
     runIdRef.current += 1;
     setIsGenerating(false);
     setGeneratingPageId(null);
+    setImageGenerationQueue([]);
   };
+
+  useEffect(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    runIdRef.current += 1;
+    setIsGenerating(false);
+    setGeneratingPageId(null);
+
+    const remaining = pendingPageIds(
+      useProjectStore.getState().imageGenerationQueue,
+    );
+    setImageGenerationQueue(remaining);
+    if (!remaining.length) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setError(t("workflow.workbench.generationPausedOffline"));
+      return;
+    }
+    void startImageQueueRef.current(remaining);
+
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      runIdRef.current += 1;
+    };
+    // Resume leftover work after reload or project switch; keep `t` out so locale
+    // changes do not abort an in-flight run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, setImageGenerationQueue]);
+
+  useEffect(() => {
+    const onOffline = () => {
+      if (
+        abortRef.current ||
+        useProjectStore.getState().imageGenerationQueue.length
+      ) {
+        abortRef.current?.abort();
+        setError(t("workflow.workbench.generationPausedOffline"));
+      }
+    };
+    const onOnline = () => {
+      const remaining = pendingPageIds(
+        useProjectStore.getState().imageGenerationQueue,
+      );
+      if (!remaining.length) return;
+      void startImageQueueRef.current(remaining);
+    };
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", onOnline);
+    return () => {
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [t]);
 
   const runChatPlan = async (
     seed: string,
@@ -293,31 +463,18 @@ export function StoryboardWorkbench() {
         storeBridge(),
         t("workflow.workbench.defaultReply"),
       );
-      appendAssistantReply(applied.reply, applied.receipts);
+      const pagesToGenerate = userAskedToGenerateImages(seed)
+        ? applied.pagesToGenerate
+        : [];
+      const receipts = pagesToGenerate.length
+        ? applied.receipts
+        : applied.receipts.filter((receipt) => receipt.type !== "generate_images");
+      appendAssistantReply(applied.reply, receipts);
       if (!state.ideaText.trim()) setIdeaText(seed);
 
-      for (const pageId of applied.pagesToGenerate) {
-        if (runId !== runIdRef.current) return;
-        const pageIndex =
-          useProjectStore
-            .getState()
-            .imagePages.findIndex((page) => page.id === pageId) + 1;
-        const currentMessages = useProjectStore.getState().aiMessages;
-        const last = currentMessages[currentMessages.length - 1];
-        if (last?.role === "assistant") {
-          const generatingReceipt: AgentReceipt = {
-            type: "generating_image",
-            pageNumber: pageIndex > 0 ? pageIndex : 1,
-          };
-          setAiMessages([
-            ...currentMessages.slice(0, -1),
-            {
-              ...last,
-              receipts: [...(last.receipts ?? []), generatingReceipt],
-            },
-          ]);
-        }
-        await generatePageImage(pageId, runId);
+      if (pagesToGenerate.length) {
+        setImageGenerationQueue(pagesToGenerate);
+        await runImageQueue(pagesToGenerate, runId, { force: true });
       }
     } catch (caught) {
       if (runId !== runIdRef.current) return;
@@ -325,9 +482,11 @@ export function StoryboardWorkbench() {
         return;
       }
       setError(
-        caught instanceof PoeApiError || caught instanceof Error
-          ? caught.message
-          : t("workflow.workbench.agentError"),
+        isNetworkFailure(caught)
+          ? t("workflow.workbench.generationPausedOffline")
+          : caught instanceof PoeApiError || caught instanceof Error
+            ? caught.message
+            : t("workflow.workbench.agentError"),
       );
     } finally {
       if (runId === runIdRef.current) {
@@ -440,10 +599,39 @@ export function StoryboardWorkbench() {
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                {imagePages.some((page) => !pageImage(page)) && (
+                  <div className="col-span-full flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+                    <p className="text-[13px] leading-relaxed text-muted-foreground">
+                      {t("workflow.workbench.reviewThenGenerate")}
+                    </p>
+                    <Button
+                      size="sm"
+                      className="rounded-lg"
+                      disabled={isGenerating}
+                      onClick={() =>
+                        void startImageQueue(
+                          imagePages
+                            .filter((page) => !pageImage(page))
+                            .map((page) => page.id),
+                          { force: true },
+                        )
+                      }
+                    >
+                      {isGenerating && generatingPageId ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <ImageIcon />
+                      )}
+                      {t("workflow.workbench.generateAllImages")}
+                    </Button>
+                  </div>
+                )}
                 {imagePages.map((page, index) => {
                   const image = pageImage(page);
                   const selected = activePageId === page.id;
                   const generating = generatingPageId === page.id;
+                  const pending =
+                    !generating && imageGenerationQueue.includes(page.id);
                   const role = carouselRole(index, imagePages.length);
                   return (
                     <article
@@ -470,13 +658,30 @@ export function StoryboardWorkbench() {
                           className="size-full object-contain"
                         />
                       ) : (
-                        <div className="grid size-full place-items-center text-muted-foreground">
-                          <Clapperboard className="size-5 opacity-35" />
+                        <div className="flex size-full flex-col justify-end bg-muted/50 p-3">
+                          <p className="line-clamp-2 text-[13px] font-medium text-foreground">
+                            {page.title ||
+                              t("workflow.workbench.untitledPage", {
+                                number: index + 1,
+                              })}
+                          </p>
+                          <p className="mt-1 line-clamp-4 text-[12px] leading-relaxed text-muted-foreground">
+                            {page.scene ||
+                              page.dialogue ||
+                              t("workflow.workbench.noScene")}
+                          </p>
                         </div>
                       )}
                       {generating && (
                         <div className="absolute inset-0 grid place-items-center bg-background/45">
                           <LoaderCircle className="size-5 animate-spin text-foreground/70" />
+                        </div>
+                      )}
+                      {pending && (
+                        <div className="absolute inset-0 grid place-items-center bg-background/35">
+                          <span className="rounded-md bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {t("workflow.workbench.pagePending")}
+                          </span>
                         </div>
                       )}
                       <div className="absolute top-2 left-2 flex items-center gap-1">
@@ -510,26 +715,6 @@ export function StoryboardWorkbench() {
                     </article>
                   );
                 })}
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    addImagePage({
-                      title: t("workflow.workbench.untitledPage", {
-                        number: imagePages.length + 1,
-                      }),
-                    })
-                  }
-                  className={cn(
-                    "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/90 bg-transparent text-muted-foreground outline-none transition-colors hover:border-foreground/25 hover:bg-muted/30 hover:text-foreground",
-                    pageAspect,
-                  )}
-                >
-                  <Plus className="size-5 opacity-60" />
-                  <span className="text-[12px] font-medium">
-                    {t("workflow.workbench.addPage")}
-                  </span>
-                </button>
               </div>
             )}
           </div>
@@ -600,8 +785,12 @@ export function StoryboardWorkbench() {
                     <Button
                       size="sm"
                       className="rounded-lg"
-                      disabled={generatingPageId === activePage.id}
-                      onClick={() => void generatePageImage(activePage.id)}
+                      disabled={
+                        generatingPageId === activePage.id || isGenerating
+                      }
+                      onClick={() =>
+                        void startImageQueue([activePage.id], { force: true })
+                      }
                     >
                       {generatingPageId === activePage.id ? (
                         <LoaderCircle className="animate-spin" />
@@ -642,16 +831,6 @@ export function StoryboardWorkbench() {
                       <span className="text-[11px] font-semibold tracking-wide text-muted-foreground">
                         {t(labelKey)}
                       </span>
-                      {field === "title" && (
-                        <span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground/80">
-                          {t("workflow.workbench.fields.titleHint")}
-                        </span>
-                      )}
-                      {field === "dialogue" && (
-                        <span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground/80">
-                          {t("workflow.workbench.fields.dialogueHint")}
-                        </span>
-                      )}
                       <AutoGrowTextarea
                         readOnly
                         tabIndex={-1}
@@ -687,6 +866,11 @@ export function StoryboardWorkbench() {
         isGenerating={isGenerating}
         isDrawing={Boolean(generatingPageId)}
         error={error}
+        onRetry={
+          imageGenerationQueue.length && !isGenerating
+            ? () => void startImageQueue(imageGenerationQueue)
+            : undefined
+        }
         onSend={() => void sendMessage()}
         onCancel={cancelGeneration}
         sessions={chatSessions}

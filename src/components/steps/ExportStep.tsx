@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StepHeader } from "@/components/steps/StepHeader";
 import { cn } from "@/lib/utils";
-import { useProjectStore } from "@/store/projectStore";
+import { selectedImagesForPages, useProjectStore } from "@/store/projectStore";
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -114,7 +114,11 @@ export function ExportStep() {
   const characters = useProjectStore((s) => s.characters);
   const selectedCharacterIds = useProjectStore((s) => s.selectedCharacterIds);
   const generatedImages = useProjectStore((s) => s.generatedImages);
+  const exportImages = selectedImagesForPages(generatedImages, imagePages);
   const narrationSegments = useProjectStore((s) => s.narrationSegments);
+  const selectedCaption = useProjectStore((s) => s.selectedCaption);
+  const audioVariants = useProjectStore((s) => s.audioVariants);
+  const selectedAudioVariantId = useProjectStore((s) => s.selectedAudioVariantId);
   const aspectRatio = useProjectStore((s) => s.aspectRatio);
   const goToStep = useProjectStore((s) => s.goToStep);
   const newProject = useProjectStore((s) => s.newProject);
@@ -123,7 +127,7 @@ export function ExportStep() {
   const [error, setError] = useState("");
 
   const exportPackage = async () => {
-    if (!generatedImages.length) return;
+    if (!exportImages.length) return;
     setError("");
     setExported(false);
     setIsExporting(true);
@@ -156,14 +160,21 @@ export function ExportStep() {
           background: character.background,
           imageCount: character.images.length,
         })),
-        images: generatedImages.map((image, index) => ({
+        images: exportImages.map((image, index) => ({
           file: `${baseName}-${index + 1}.png`,
           source: image.url,
           prompt: image.prompt,
           pageId: image.pageId ?? null,
         })),
-        narration: narrationSegments,
+        narration: selectedCaption || narrationSegments.map((segment) => segment.text).join("\n\n"),
+        narrationSegments,
       };
+      const narrationText =
+        selectedCaption.trim() ||
+        narrationSegments.map((segment) => segment.text).join("\n\n");
+      const selectedAudio =
+        audioVariants.find((variant) => variant.id === selectedAudioVariantId) ??
+        audioVariants.find((variant) => variant.audioUrl);
       const files: Array<{ name: string; data: Uint8Array }> = [
         {
           name: "manifest.json",
@@ -176,6 +187,12 @@ export function ExportStep() {
           ),
         },
       ];
+      if (narrationText) {
+        files.push({
+          name: "narration.txt",
+          data: new TextEncoder().encode(narrationText),
+        });
+      }
       selectedCharacters.forEach((character, characterIndex) => {
         character.images.forEach((image, imageIndex) => {
           if (!image.dataUrl.startsWith("data:")) return;
@@ -196,8 +213,8 @@ export function ExportStep() {
         });
       });
       const failedImages: string[] = [];
-      for (let index = 0; index < generatedImages.length; index += 1) {
-        const image = generatedImages[index];
+      for (let index = 0; index < exportImages.length; index += 1) {
+        const image = exportImages[index];
         try {
           const response = await fetch(image.url);
           if (!response.ok) throw new Error("image download failed");
@@ -217,6 +234,24 @@ export function ExportStep() {
               failedImages.join("\n"),
           ),
         });
+      }
+      if (selectedAudio?.audioUrl) {
+        try {
+          const response = await fetch(selectedAudio.audioUrl);
+          if (!response.ok) throw new Error("audio download failed");
+          files.push({
+            name: `${baseName}-narration.mp3`,
+            data: new Uint8Array(await response.arrayBuffer()),
+          });
+        } catch {
+          files.push({
+            name: "audio-download-notes.txt",
+            data: new TextEncoder().encode(
+              "The generated narration audio could not be copied into the package. Open this source URL while it is still available:\n\n" +
+                selectedAudio.audioUrl,
+            ),
+          });
+        }
       }
       downloadBlob(createZip(files), `${baseName}.zip`);
       setExported(true);
@@ -238,20 +273,20 @@ export function ExportStep() {
       {error && <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs leading-relaxed text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
 
       <Card className="mt-7 overflow-hidden">
-        <CardHeader className="border-b border-border"><div className="flex items-center justify-between gap-3"><CardTitle>{t("workflow.export.packageTitle")}</CardTitle><span className="rounded-full bg-accent px-3 py-1 text-xs font-bold text-primary">{generatedImages.length ? t("workflow.export.ready") : t("workflow.export.incomplete")}</span></div></CardHeader>
+        <CardHeader className="border-b border-border"><div className="flex items-center justify-between gap-3"><CardTitle>{t("workflow.export.packageTitle")}</CardTitle><span className="rounded-full bg-accent px-3 py-1 text-xs font-bold text-primary">{exportImages.length ? t("workflow.export.ready") : t("workflow.export.incomplete")}</span></div></CardHeader>
         <CardContent className="p-5 sm:p-6">
           <div className="grid gap-3 sm:grid-cols-3">
-            {[{ icon: ImageIcon, label: t("workflow.export.image"), value: t("workflow.export.imageCount", { count: generatedImages.length }) }, { icon: MessageSquareText, label: t("workflow.export.caption"), value: t("workflow.export.narrationCount", { count: narrationSegments.length }) }, { icon: Volume2, label: t("workflow.export.audio"), value: t("workflow.export.timelineReady") }].map(({ icon: Icon, label, value }) => <div key={label} className="rounded-xl border border-border bg-muted/50 p-3"><Icon className="size-4 text-primary" /><div className="mt-3 text-xs font-semibold text-muted-foreground">{label}</div><div className="mt-1 text-sm font-bold text-foreground">{value}</div></div>)}
+            {[{ icon: ImageIcon, label: t("workflow.export.image"), value: t("workflow.export.imageCount", { count: exportImages.length }) }, { icon: MessageSquareText, label: t("workflow.export.caption"), value: selectedCaption || narrationSegments.length ? t("workflow.export.narrationReady") : t("workflow.export.optional") }, { icon: Volume2, label: t("workflow.export.audio"), value: audioVariants.some((variant) => variant.audioUrl) ? t("workflow.export.audioReady") : t("workflow.export.optional") }].map(({ icon: Icon, label, value }) => <div key={label} className="rounded-xl border border-border bg-muted/50 p-3"><Icon className="size-4 text-primary" /><div className="mt-3 text-xs font-semibold text-muted-foreground">{label}</div><div className="mt-1 text-sm font-bold text-foreground">{value}</div></div>)}
           </div>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {generatedImages.map((image, index) => <div key={image.id} className="overflow-hidden rounded-2xl border border-border bg-muted"><img src={image.url} alt={image.alt} className={cn("w-full object-cover", aspectRatio === "9:16" ? "aspect-[9/16]" : "aspect-[4/5]")} /><div className="flex items-center justify-between gap-2 px-3 py-2.5 text-xs"><span className="font-bold text-foreground">{t("workflow.export.scene", { number: index + 1 })}</span>{narrationSegments.some((segment) => segment.imageId === image.id) && <Check className="size-3.5 text-primary" />}</div></div>)}
+            {exportImages.map((image, index) => <div key={image.id} className="overflow-hidden rounded-2xl border border-border bg-muted"><img src={image.url} alt={image.alt} className={cn("w-full object-cover", aspectRatio === "9:16" ? "aspect-[9/16]" : "aspect-[4/5]")} /><div className="flex items-center justify-between gap-2 px-3 py-2.5 text-xs"><span className="font-bold text-foreground">{t("workflow.export.scene", { number: index + 1 })}</span>{narrationSegments.some((segment) => segment.imageId === image.id) && <Check className="size-3.5 text-primary" />}</div></div>)}
           </div>
 
-          {narrationSegments.length > 0 && <div className="mt-6 rounded-2xl border border-border bg-muted/40 p-4"><div className="flex items-center gap-2 text-xs font-bold tracking-[0.12em] text-muted-foreground uppercase"><Clock3 className="size-3.5 text-primary" />{t("workflow.export.timelineTitle")}</div><div className="mt-3 space-y-2">{narrationSegments.map((segment, index) => <div key={segment.id} className="flex gap-3 text-sm"><span className="w-14 shrink-0 font-mono text-xs text-muted-foreground">{segment.startSeconds.toFixed(1)}s</span><span className="text-foreground">{t("workflow.export.scene", { number: index + 1 })} · {segment.text}</span></div>)}</div></div>}
+          {(selectedCaption || narrationSegments.length > 0) && <div className="mt-6 rounded-2xl border border-border bg-muted/40 p-4"><div className="flex items-center gap-2 text-xs font-bold tracking-[0.12em] text-muted-foreground uppercase"><Clock3 className="size-3.5 text-primary" />{t("workflow.export.timelineTitle")}</div><p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-foreground">{selectedCaption || narrationSegments.map((segment) => segment.text).join("\n\n")}</p></div>}
 
           {exported && <div className="mt-5 flex items-center gap-2 text-sm font-semibold text-primary"><Check className="size-4" />{t("workflow.export.exported")}</div>}
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button className="rounded-2xl" disabled={!generatedImages.length || isExporting} onClick={() => void exportPackage()}>{isExporting ? <LoaderCircle className="animate-spin" /> : <FileDown />}{isExporting ? t("workflow.export.downloading") : t("workflow.export.download")}</Button><Button variant="outline" className="rounded-2xl" onClick={newProject}><Plus />{t("workflow.export.newProject")}</Button></div>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row"><Button className="rounded-2xl" disabled={!exportImages.length || isExporting} onClick={() => void exportPackage()}>{isExporting ? <LoaderCircle className="animate-spin" /> : <FileDown />}{isExporting ? t("workflow.export.downloading") : t("workflow.export.download")}</Button><Button variant="outline" className="rounded-2xl" onClick={newProject}><Plus />{t("workflow.export.newProject")}</Button></div>
           <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("workflow.export.downloadDescription")}</p>
         </CardContent>
       </Card>

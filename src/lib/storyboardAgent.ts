@@ -4,6 +4,7 @@ import {
   type PoeMessage,
   type PoePart,
 } from "@/lib/poeApi";
+import { formatWebResearch, searchWebResearch } from "@/lib/webResearch";
 import type {
   AiMessage,
   AgentReceipt,
@@ -135,6 +136,7 @@ export interface StoryboardAgentContext {
   referenceImageDataUrl: string | null;
   aiMessages: AiMessage[];
   userRequest: string;
+  webResearch?: string;
   attachment?: {
     name: string;
     kind: StoryMaterial["kind"];
@@ -225,8 +227,8 @@ Your job is to turn one user idea into a swipeable popular-science image set for
 
 How the product works:
 1. The user brings an idea (and optional characters with reference images).
-2. You decide how to introduce that idea so ordinary people will tap through and remember it.
-3. You produce many images. People play through the images while an independent narrator explains the knowledge.
+2. You first write the full text plan: visual direction plus every image card (scene, narrator, composition, prompt). The user reviews that text before any picture is drawn.
+3. Only after the user explicitly asks to generate or regenerate images do you add generate_images.
 4. Knowledge images stay visual and almost text-free. The narrator carries the teaching. Characters in the picture only demonstrate; they do not speak.
 5. The first image (HOOK) is the exception: it SHOULD include a short, punchy on-image title or question that makes people tap through.
 
@@ -238,9 +240,10 @@ Carousel structure (always, unless the user asks otherwise):
 Mission priorities:
 1. Make the idea easy for the general public. One takeaway per image.
 2. Accurate, calm, and friendly. No fear-mongering, gore, or sensational drama.
-3. If selected characters exist, they should appear in most frames, matching name, background, and reference images.
-4. Do not invent official policies, statistics, laws, or organisational instructions unless the user provides them.
-5. Knowledge lives in the off-screen narrator (dialogue field), not as character speech. Middle and last images should not carry paragraphs of text. The hook may show a short title.
+3. If selected characters exist, they are the ONLY cast. Use each character's exact name as one identity. A name like 貓頭鷹博士 is one owl, not a human doctor plus an owl. Never invent extra humans, doctors, scientists, or animals. Match the attached reference images.
+4. Do not invent official policies, statistics, laws, or organisational instructions unless the user provides them or the supplied web research confirms them.
+5. Use the supplied web research for real-world facts. If it is missing or thin, keep claims conservative and say so in the reply. Still return JSON only — never write a web-search essay.
+6. Knowledge lives in the off-screen narrator (dialogue field), not as character speech. Middle and last images should not carry paragraphs of text. The hook may show a short title.
 
 You control the workbench through structured actions (tools):
 - Visual direction (collapsible sheet) = look and tone for the whole set.
@@ -271,17 +274,17 @@ Field guidance:
 - scene / idea: what the picture shows. Visual only.
 - title: for the hook, a short on-image headline that attracts taps. Keep it to a few words. Leave later images without on-image titles.
 - dialogue: the narrator script for this image. 1–2 spoken sentences from an off-screen explainer. Never write this as a character talking, quoting, or chatting. Characters stay silent and only pose / demonstrate.
-- characters: who appears and what they are doing as a visual demo. No spoken lines.
+- characters: only selected cast members and what they are doing as a visual demo. No spoken lines. Never add an unlisted person.
 - suggestedText: optional short social caption for posting. Not burned into the image except on the hook, where title may appear.
 - composition: staging that makes the idea obvious at a glance.
-- imagePrompt: production-ready English visual prompt. Include selected characters when available. For the hook, explicitly ask for a large, readable title using the title field. For other images, no readable text, logos, captions, or watermarks.
+- imagePrompt: production-ready English visual prompt. Name only the selected cast, lock their likeness to the reference sheets, and forbid extra people. For the hook, explicitly ask for a large, readable title using the title field. For other images, no readable text, logos, captions, or watermarks.
 
 Action rules:
 1. Prefer surgical actions (update_page / merge upsert) for local edits such as "change image 3 to night".
 2. Use upsert_pages with mode "replace" only for full redesigns or when creating the set from scratch.
 3. When revising existing images, keep their id (or pageIndex) so generated pictures can be preserved.
-4. Include generate_images only when the user asks to generate/regenerate images, or after a redesign that clearly needs new frames.
-5. Keep selected characters, tone, and visual style consistent across the set.
+4. Never include generate_images on the first idea, a text revision, or a redesign. The user must review the written plan first. Add generate_images only when they explicitly ask to generate or regenerate pictures.
+5. Keep selected characters, tone, and visual style consistent across the set. Do not add a human lecturer, doctor, or extra mascot to "explain" the fact.
 6. Prefer ${pageHint} for a new set unless the user specifies otherwise. First image is the hook; last image is the CTA.
 7. Write design fields, titles, scene, characters, dialogue, suggestedText, composition, and idea in ${outputLanguage}.
 8. Write imagePrompt in detailed English.
@@ -291,13 +294,13 @@ Action rules:
 
 export function buildAgentUserContent(context: StoryboardAgentContext): PoePart[] {
   const mascotContext = context.selectedCharacters.length
-    ? context.selectedCharacters
+    ? `${buildCastLock(context.selectedCharacters)}\n\n${context.selectedCharacters
         .map(
           (character) =>
-            `Character: ${character.name || "Unnamed"}\nBackground: ${character.background || "None"}`,
+            `Character: ${character.name || "Unnamed"}\nBackground: ${character.background || "None"}\nReference images attached: ${character.images.length}`,
         )
-        .join("\n\n")
-    : "No characters selected.";
+        .join("\n\n")}`
+    : "No characters selected. Do not invent a recurring mascot unless the user asks.";
   const materials = context.storyMaterials
     .map((material) => `- ${material.kind}: ${material.name}`)
     .join("\n");
@@ -327,11 +330,13 @@ Current visual direction:\n${JSON.stringify(context.storyDesign, null, 2)}
 
 Current image cards (canvas). Role is derived from order: first=hook, last=cta, middle=knowledge.\n${JSON.stringify(pages, null, 2)}
 
-Selected characters (from @mentions or the current cast; use each character's name, background, and reference images in the pictures):\n${mascotContext}
+Selected characters (from @mentions or the current cast). Use only this cast. Do not invent a human doctor or extra animal:\n${mascotContext}
 
 Reference materials:\n${materials || "None"}
 
-Operate via actions. Preserve page ids when editing existing images.`,
+${context.webResearch ? `Web research (use these facts; do not invent conflicting details):\n${context.webResearch}\n\n` : ""}Operate via actions. Preserve page ids when editing existing images.
+If no pictures exist yet, or the user is only sharing / revising the idea, write the text plan only. Do not include generate_images unless they explicitly asked to generate pictures.
+Return valid JSON only. No markdown, no source list outside the JSON.`,
     },
   ];
 
@@ -353,18 +358,7 @@ Operate via actions. Preserve page ids when editing existing images.`,
       text: `Attached file ${context.attachment.name}:\n${context.attachment.text}`,
     });
   }
-  context.selectedCharacters.forEach((character) => {
-    const cover = character.images[0];
-    if (!cover?.dataUrl) return;
-    content.push({
-      type: "image_url",
-      image_url: { url: cover.dataUrl },
-    });
-    content.push({
-      type: "text",
-      text: `Reference image for character "${character.name || "Unnamed"}".`,
-    });
-  });
+  appendCharacterReferences(content, context.selectedCharacters);
 
   return content;
 }
@@ -496,7 +490,6 @@ export function applyAgentActions(
           bridge.setGeneratedImages(images);
           bridge.setImagePages(pages);
           if (pages[0]) {
-            bridge.setActivePageId(pages[0].id);
             bridge.setSelectedImageId(pages[0].selectedImageId);
           }
           receipts.push({ type: "upsert_pages", count: pages.length, mode });
@@ -584,7 +577,6 @@ export function applyAgentActions(
             : pages.length;
         pages.splice(at, 0, next);
         bridge.setImagePages(pages);
-        bridge.setActivePageId(next.id);
         addPageCount += 1;
         break;
       }
@@ -638,15 +630,7 @@ export function applyAgentActions(
         break;
       }
       case "set_active_page": {
-        const pageId = resolvePageId(
-          bridge.getImagePages(),
-          action.pageId,
-          action.pageIndex,
-        );
-        if (pageId) {
-          bridge.setActivePageId(pageId);
-          receipts.push({ type: "set_active_page" });
-        }
+        // Canvas focus is user-driven; do not open the image popup from the agent.
         break;
       }
       default:
@@ -674,7 +658,39 @@ export function applyAgentActions(
   };
 }
 
-export function runStoryboardAgentTurn({
+function buildCastLock(characters: Character[]) {
+  if (!characters.length) return "";
+  const names = characters
+    .map((character) => `"${character.name || "Unnamed"}"`)
+    .join(", ");
+  return `CAST LOCK: The only allowed characters are ${names}. Each name is one character. If a name contains 博士, Doctor, Prof, or similar, that is still the same listed character — do not add a separate human doctor, scientist, or lecturer. Do not invent extra humans, animals, or mascots. Copy the attached reference sheets exactly: same species, face, colors, clothes, and proportions. Do not redesign them.`;
+}
+
+function appendCharacterReferences(content: PoePart[], characters: Character[]) {
+  characters.forEach((character) => {
+    const name = character.name || "Unnamed";
+    const images = character.images.filter((image) => image.dataUrl);
+    if (!images.length) return;
+    images.forEach((image, index) => {
+      content.push({
+        type: "text",
+        text: `Reference sheet ${index + 1} for "${name}". This is the only allowed likeness. Copy it exactly.`,
+      });
+      content.push({
+        type: "image_url",
+        image_url: { url: image.dataUrl },
+      });
+    });
+  });
+}
+
+export function userAskedToGenerateImages(text: string) {
+  return /生成(全部|所有)?(的)?(圖片|圖像)|重新生成|出圖|畫圖|generate(\s+all)?\s+(the\s+)?images?|regenerate(\s+images?)?|draw(\s+the)?\s+images?/i.test(
+    text.trim(),
+  );
+}
+
+export async function runStoryboardAgentTurn({
   apiKey,
   textModel,
   context,
@@ -690,6 +706,23 @@ export function runStoryboardAgentTurn({
     content: item.content,
   }));
 
+  let webResearch = context.webResearch ?? "";
+  if (!webResearch) {
+    try {
+      const snippets = await searchWebResearch({
+        query: [context.userRequest, context.storyDesign.summary]
+          .filter(Boolean)
+          .join(" — "),
+        language: context.language,
+        signal,
+      });
+      webResearch = snippets.length ? formatWebResearch(snippets) : "";
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      webResearch = "";
+    }
+  }
+
   return poeChatJson<AgentTurnResponse>({
     apiKey,
     model: textModel,
@@ -702,7 +735,10 @@ export function runStoryboardAgentTurn({
         content: buildAgentSystemPrompt(context.language, context.format),
       },
       ...history,
-      { role: "user", content: buildAgentUserContent(context) },
+      {
+        role: "user",
+        content: buildAgentUserContent({ ...context, webResearch }),
+      },
     ],
   });
 }
@@ -717,6 +753,7 @@ export async function generateStoryboardPageImage({
   referenceImageDataUrl,
   pageIndex = 0,
   pageCount = 1,
+  signal,
 }: {
   apiKey: string;
   imageModel: string;
@@ -727,6 +764,7 @@ export async function generateStoryboardPageImage({
   referenceImageDataUrl: string | null;
   pageIndex?: number;
   pageCount?: number;
+  signal?: AbortSignal;
 }) {
   const lockedAspect = aspectRatio ?? "9:16";
   const role = carouselRole(pageIndex, pageCount);
@@ -743,6 +781,7 @@ export async function generateStoryboardPageImage({
   const characterNotes = selectedCharacters
     .map((character) => `${character.name}: ${character.background}`)
     .join("; ");
+  const castLock = buildCastLock(selectedCharacters);
   const designNotes = DESIGN_FIELDS.map((field) => `${field}: ${storyDesign[field]}`)
     .filter((line) => !line.endsWith(": "))
     .join("\n");
@@ -751,6 +790,8 @@ export async function generateStoryboardPageImage({
 This is image ${pageIndex + 1} of ${pageCount}. Role: ${roleBrief}
 People will swipe through these images while an off-screen narrator explains the knowledge. Characters are silent visual demonstrators, not speakers. No speech bubbles.
 ${textRule}
+${castLock}
+If the scene or image prompt mentions any extra person, doctor, scientist, or unlisted animal, ignore that extra and keep only the locked cast.
 Aspect ratio: ${lockedAspect}
 Visual direction:
 ${designNotes}
@@ -761,25 +802,25 @@ Composition: ${page.composition}
 Character continuity: ${characterNotes || "n/a"}
 Image prompt:
 ${page.imagePrompt}
-No gore. Keep it calm, clear, and easy to understand at a glance.`;
+No extra humans. No gore. Keep it calm, clear, and easy to understand at a glance.`;
 
   const content: PoePart[] = [{ type: "text", text: promptText }];
 
   if (referenceImageDataUrl) {
     content.push({
+      type: "text",
+      text: "Optional style/reference image for the scene, not a new character.",
+    });
+    content.push({
       type: "image_url",
       image_url: { url: referenceImageDataUrl },
     });
   }
-  selectedCharacters.forEach((character) => {
-    const cover = character.images[0];
-    if (cover?.dataUrl) {
-      content.push({
-        type: "image_url",
-        image_url: { url: cover.dataUrl },
-      });
-    }
-  });
+  appendCharacterReferences(content, selectedCharacters);
+
+  const likenessRule = selectedCharacters.length
+    ? " Use only the locked cast. Copy the attached character reference sheets exactly. Do not add a human doctor or redesign the animals."
+    : " Keep character likeness consistent with any reference images.";
 
   const response = await poeGenerateImage({
     apiKey,
@@ -787,14 +828,15 @@ No gore. Keep it calm, clear, and easy to understand at a glance.`;
     prompt: promptText,
     aspectRatio: lockedAspect,
     maxTokens: 800,
-    temperature: 0.6,
+    temperature: 0.45,
+    signal,
     messages: [
       {
         role: "system",
         content:
           role === "hook"
-            ? "You generate the opening hook image for an HKSDPCL popular-science carousel. Include a short, large, readable title or question that attracts taps. Characters are silent demonstrators, not speakers — no speech bubbles. Keep character likeness consistent with any reference images. Respect the requested aspect ratio exactly. Avoid fear-mongering, gore, or panic."
-            : "You generate popular-science carousel images for HKSDPCL. Return one clear visual with almost no readable text. Characters are silent demonstrators, not speakers — no speech bubbles. Keep character likeness consistent with any reference images. Respect the requested aspect ratio exactly. Avoid fear-mongering, gore, panic, or story-only staging.",
+            ? `You generate the opening hook image for an HKSDPCL popular-science carousel. Include a short, large, readable title or question that attracts taps. Characters are silent demonstrators, not speakers — no speech bubbles.${likenessRule} Respect the requested aspect ratio exactly. Avoid fear-mongering, gore, or panic.`
+            : `You generate popular-science carousel images for HKSDPCL. Return one clear visual with almost no readable text. Characters are silent demonstrators, not speakers — no speech bubbles.${likenessRule} Respect the requested aspect ratio exactly. Avoid fear-mongering, gore, panic, or story-only staging.`,
       },
       { role: "user", content },
     ],

@@ -87,8 +87,8 @@ const modelFields: {
 
 const modelOptions: Record<ModelSettingKey, string[]> = {
   lightweight: ["gpt-4.1-mini"],
-  text: ["gemini-3.6-flash"],
-  images: ["seedream-4.5", "gpt-image-2"],
+  text: ["gemini-3.7-flash"],
+  images: ["seedream-5.0-lite", "seedream-4.5", "gpt-image-2"],
   voice: ["minimax-speech-2.8"],
 };
 

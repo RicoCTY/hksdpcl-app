@@ -35,9 +35,10 @@ export function TopBar({ title }: TopBarProps) {
 
   const showWorkflowChrome =
     view === "home" && (step === "workbench" || step === "caption_audio");
-  const canExport =
-    step === "workbench" &&
-    imagePages.some((page) => page.selectedImageId || page.imageIds.length);
+  const canExport = imagePages.some(
+    (page) => page.selectedImageId || page.imageIds.length,
+  );
+  const showExportAction = showWorkflowChrome;
 
   const tabTransition = reduceMotion
     ? { duration: 0 }
@@ -142,28 +143,30 @@ export function TopBar({ title }: TopBarProps) {
             <span className="hidden sm:inline">{t("characters.create")}</span>
           </Button>
         )}
-        {step === "workbench" && view === "home" && (
+        {showExportAction && (
           <motion.div
             initial={reduceMotion ? false : { opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: reduceMotion ? 0 : 0.18 }}
             className="flex items-center gap-1.5"
           >
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "h-9 rounded-lg px-3 text-muted-foreground",
-                workbenchDesignOpen && "bg-muted text-foreground",
-              )}
-              aria-pressed={workbenchDesignOpen}
-              onClick={() => toggleWorkbenchDesignOpen()}
-            >
-              <SlidersHorizontal className="size-3.5" />
-              <span className="hidden sm:inline">
-                {t("workflow.workbench.designShort")}
-              </span>
-            </Button>
+            {step === "workbench" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "h-9 rounded-lg px-3 text-muted-foreground",
+                  workbenchDesignOpen && "bg-muted text-foreground",
+                )}
+                aria-pressed={workbenchDesignOpen}
+                onClick={() => toggleWorkbenchDesignOpen()}
+              >
+                <SlidersHorizontal className="size-3.5" />
+                <span className="hidden sm:inline">
+                  {t("workflow.workbench.designShort")}
+                </span>
+              </Button>
+            )}
             <Button
               variant={canExport ? "default" : "ghost"}
               size="sm"
@@ -173,7 +176,9 @@ export function TopBar({ title }: TopBarProps) {
             >
               <FileDown className="size-3.5" />
               <span className="hidden sm:inline">
-                {t("workflow.workbench.exportAll")}
+                {step === "caption_audio"
+                  ? t("workflow.caption.continue")
+                  : t("workflow.workbench.exportAll")}
               </span>
             </Button>
           </motion.div>

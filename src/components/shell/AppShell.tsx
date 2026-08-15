@@ -23,7 +23,8 @@ function getInitialSidebarCollapsed() {
 export function AppShell({ title, children }: AppShellProps) {
   const view = useProjectStore((s) => s.view);
   const step = useProjectStore((s) => s.step);
-  const isWorkbench = view === "home" && step === "workbench";
+  const isStudio =
+    view === "home" && (step === "workbench" || step === "caption_audio");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     getInitialSidebarCollapsed,
   );
@@ -50,12 +51,12 @@ export function AppShell({ title, children }: AppShellProps) {
         <div
           className={cn(
             "aurora-wash relative min-h-0 flex-1",
-            view === "settings" || isWorkbench
+            view === "settings" || isStudio
               ? "overflow-hidden"
               : "overflow-auto",
           )}
         >
-          {(view === "home" || view === "characters") && !isWorkbench && (
+          {(view === "home" || view === "characters") && !isStudio && (
             <img
               src={companyLogo}
               alt=""
@@ -66,7 +67,7 @@ export function AppShell({ title, children }: AppShellProps) {
           <div
             className={cn(
               "relative z-10",
-              view === "settings" || isWorkbench ? "h-full min-h-0" : "min-h-full",
+              view === "settings" || isStudio ? "h-full min-h-0" : "min-h-full",
             )}
           >
             {children}
