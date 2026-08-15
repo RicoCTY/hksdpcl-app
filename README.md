@@ -111,11 +111,11 @@ Version lives in two files and must stay in sync:
 - `package.json`
 - `src-tauri/tauri.conf.json`
 
-Both are currently `0.1.0`. To ship that version:
+Both are currently `0.2.0`. To ship a version:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 The **Release** workflow then builds:
