@@ -565,10 +565,13 @@ export function ChatPanel({
 
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-3"
+        className={cn(
+          "min-h-0 flex-1 overflow-y-auto px-4 pb-3",
+          messages.length || isGenerating ? "space-y-4" : "grid place-items-center",
+        )}
       >
         {!messages.length && !isGenerating && (
-          <div className="pt-8 text-center">
+          <div className="text-center">
             <p className="text-[13px] font-medium text-foreground">
               {t("workflow.workbench.chatEmptyTitle")}
             </p>

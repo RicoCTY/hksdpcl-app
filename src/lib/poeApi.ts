@@ -36,14 +36,14 @@ interface PoeCompletionResponse {
 }
 
 function getErrorMessage(status: number, message?: string) {
-  if (status === 401) return "Poe API key 無效或已過期。";
-  if (status === 402) return "Poe 點數不足，請檢查 Poe 帳戶餘額。";
-  if (status === 403) return "Poe 拒絕了此次請求，可能是模型權限或內容政策限制。";
-  if (status === 404) return "找不到指定的 Poe 模型，請檢查模型名稱。";
-  if (status === 408 || status === 504) return "Poe 處理請求逾時，請稍後再試。";
-  if (status === 429) return "Poe API 暫時達到速率限制，請稍後再試。";
-  if (status >= 500) return "Poe 或模型服務暫時不可用，請稍後再試。";
-  return message || "Poe API 請求失敗。";
+  if (status === 401) return "Poe API key 無效或已過期";
+  if (status === 402) return "Poe 點數不足，請檢查 Poe 帳戶餘額";
+  if (status === 403) return "Poe 拒絕了此次請求，可能是模型權限或內容政策限制";
+  if (status === 404) return "找不到指定的 Poe 模型，請檢查模型名稱";
+  if (status === 408 || status === 504) return "Poe 處理請求逾時，請稍後再試";
+  if (status === 429) return "Poe API 暫時達到速率限制，請稍後再試";
+  if (status >= 500) return "Poe 或模型服務暫時不可用，請稍後再試";
+  return message || "Poe API 請求失敗";
 }
 
 async function parseResponse(response: Response) {
@@ -94,23 +94,50 @@ function contentHasMedia(content: unknown): boolean {
   });
 }
 
-export function extractJson<T>(text: string): T {
-  const cleaned = text
+function stripJsonFences(text: string) {
+  return text
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
-  try {
-    return JSON.parse(cleaned) as T;
-  } catch {
-    const start = Math.min(
-      ...[cleaned.indexOf("{"), cleaned.indexOf("[")].filter((index) => index >= 0),
-    );
-    const end = Math.max(cleaned.lastIndexOf("}"), cleaned.lastIndexOf("]"));
-    if (Number.isFinite(start) && start >= 0 && end > start) {
-      return JSON.parse(cleaned.slice(start, end + 1)) as T;
-    }
-    throw new Error("AI 回應不是有效的 JSON，請重新生成。\n\n" + text);
+}
+
+function sliceJsonPayload(text: string) {
+  const start = Math.min(
+    ...[text.indexOf("{"), text.indexOf("[")].filter((index) => index >= 0),
+  );
+  const end = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+  if (Number.isFinite(start) && start >= 0 && end > start) {
+    return text.slice(start, end + 1);
   }
+  return text;
+}
+
+/** Repair common model JSON mistakes without touching escaped quotes. */
+function repairJsonPayload(text: string) {
+  return text
+    .replace(/,\s*([}\]])/g, "$1")
+    .replace(/}\s*{/g, "},{")
+    .replace(/]\s*\[/g, "],[")
+    .replace(/}\s*\[/g, "},[")
+    .replace(/]\s*{/g, "],{");
+}
+
+export function extractJson<T>(text: string): T {
+  const cleaned = stripJsonFences(text);
+  const candidates = [cleaned, sliceJsonPayload(cleaned)].flatMap((payload) => [
+    payload,
+    repairJsonPayload(payload),
+  ]);
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as T;
+    } catch {
+      // Try the next repair before surfacing a user-facing error.
+    }
+  }
+
+  throw new Error("AI 回應格式無效，請再試一次");
 }
 
 /** Models that use Poe's dedicated images endpoint instead of chat completions. */
@@ -160,8 +187,8 @@ export async function poeChat({
   /** Seedream-style chat image bots accept aspect in the request body. */
   aspect?: string;
 }) {
-  if (!apiKey.trim()) throw new PoeApiError("請先喺設定加入 Poe API 金鑰。", 401);
-  if (!model.trim()) throw new PoeApiError("請先設定此工作流程的 Poe 模型。", 400);
+  if (!apiKey.trim()) throw new PoeApiError("請先喺設定加入 Poe API 金鑰", 401);
+  if (!model.trim()) throw new PoeApiError("請先設定此工作流程的 Poe 模型", 400);
 
   const payload: Record<string, unknown> = {
     model: model.trim(),
@@ -188,7 +215,7 @@ export async function poeChat({
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
-    throw new PoeApiError("無法連接 Poe，請檢查網絡連線。", 0);
+    throw new PoeApiError("無法連接 Poe，請檢查網絡連線", 0);
   }
 
   const body = await parseResponse(response);
@@ -196,7 +223,7 @@ export async function poeChat({
   const text = contentToText(content);
   const hasMedia = contentHasMedia(content) || extractImageResults(body, text).length > 0;
   if (!text && !(allowEmptyText && hasMedia)) {
-    throw new PoeApiError("Poe 回應了空白內容，請重新嘗試。", 502);
+    throw new PoeApiError("Poe 回應了空白內容，請重新嘗試", 502);
   }
   return { text, raw: body, content };
 }
@@ -227,9 +254,9 @@ export async function poeImagesGenerate({
   prompt: string;
   signal?: AbortSignal;
 }) {
-  if (!apiKey.trim()) throw new PoeApiError("請先喺設定加入 Poe API 金鑰。", 401);
-  if (!model.trim()) throw new PoeApiError("請先設定此工作流程的 Poe 模型。", 400);
-  if (!prompt.trim()) throw new PoeApiError("圖片提示詞不能為空。", 400);
+  if (!apiKey.trim()) throw new PoeApiError("請先喺設定加入 Poe API 金鑰", 401);
+  if (!model.trim()) throw new PoeApiError("請先設定此工作流程的 Poe 模型", 400);
+  if (!prompt.trim()) throw new PoeApiError("圖片提示詞不能為空", 400);
 
   let response: Response;
   try {
@@ -248,14 +275,14 @@ export async function poeImagesGenerate({
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
-    throw new PoeApiError("無法連接 Poe，請檢查網絡連線。", 0);
+    throw new PoeApiError("無法連接 Poe，請檢查網絡連線", 0);
   }
 
   const body = await parseResponse(response);
   const text = typeof body === "object" ? JSON.stringify(body) : "";
   const images = extractImageResults(body, text);
   if (!images.length) {
-    throw new PoeApiError("Poe 圖片 API 沒有回傳可用圖片。", 502);
+    throw new PoeApiError("Poe 圖片 API 沒有回傳可用圖片", 502);
   }
   return { images, raw: body };
 }

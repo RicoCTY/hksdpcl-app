@@ -25,15 +25,24 @@ export const DESIGN_FIELDS: Array<keyof StoryDesign> = [
   "pacing",
 ];
 
+export type CarouselRole = "hook" | "knowledge" | "cta";
+
+export function carouselRole(index: number, total: number): CarouselRole {
+  if (total <= 1) return "hook";
+  if (index <= 0) return "hook";
+  if (index >= total - 1) return "cta";
+  return "knowledge";
+}
+
 /** Typed tool registry — mirrors AgentAction types for docs and future function-calling. */
 export const AGENT_TOOL_REGISTRY = [
   {
     name: "set_design",
-    description: "Update global story design (project-level creative direction).",
+    description: "Update visual direction for the whole image set.",
   },
   {
     name: "upsert_pages",
-    description: "Create or merge storyboard pages on the canvas.",
+    description: "Create or merge images on the canvas.",
   },
   {
     name: "update_page",
@@ -41,11 +50,11 @@ export const AGENT_TOOL_REGISTRY = [
   },
   {
     name: "add_page",
-    description: "Insert a new storyboard page.",
+    description: "Insert a new image card.",
   },
   {
     name: "remove_page",
-    description: "Delete a storyboard page.",
+    description: "Delete an image card.",
   },
   {
     name: "reorder_pages",
@@ -205,29 +214,40 @@ export function buildAgentSystemPrompt(
   const pageHint =
     format === "post"
       ? language === "en"
-        ? "1 to 3 pages"
-        : "1 至 3 頁"
+        ? "5 to 7 images"
+        : "5 至 7 張"
       : language === "en"
-        ? "3 to 5 pages"
-        : "3 至 5 頁";
+        ? "6 to 8 images"
+        : "6 至 8 張";
 
-  return `You are the agentic educational storyboard director inside HKSDPCL Studio (Hong Kong Survival and Disaster Prevention Council).
-Your job is to turn user ideas into clear, trustworthy educational social content about survival awareness, disaster preparedness, safety habits, and public-interest learning — not entertainment-first storytelling.
+  return `You are the image-production agent inside HKSDPCL Studio (Hong Kong Survival and Disaster Prevention Council).
+Your job is to turn one user idea into a swipeable popular-science image set for the general public. Typical ideas are everyday 冷知識 / survival trivia / public-interest facts — e.g. "Japanese park benches can be taken apart and used as a cooking stove stand." You are not writing a narrative story.
 
-Mission priorities (always):
-1. Educational value first: every page should teach, remind, or reinforce one practical takeaway.
-2. Accurate, calm, and reassuring tone. Avoid fear-mongering, sensational drama, gore, or panic imagery.
-3. Prefer simple cause → action → benefit structure (risk/context → correct behaviour → safer outcome).
-4. Keep language accessible for the general public and families in Hong Kong.
-5. Visuals should support learning: clear situations, readable staging, helpful character demos, and concrete safety actions.
-6. Do not invent organisational policies, statistics, laws, or official instructions. Stay general and practical unless the user provides facts.
+How the product works:
+1. The user brings an idea (and optional characters with reference images).
+2. You decide how to introduce that idea so ordinary people will tap through and remember it.
+3. You produce many images. People play through the images while an independent narrator explains the knowledge.
+4. Knowledge images stay visual and almost text-free. The narrator carries the teaching. Characters in the picture only demonstrate; they do not speak.
+5. The first image (HOOK) is the exception: it SHOULD include a short, punchy on-image title or question that makes people tap through.
+
+Carousel structure (always, unless the user asks otherwise):
+- Image 1 = HOOK. A surprising visual plus a short on-image title / question / hook line (e.g. a curiosity headline). Curiosity first, not a lecture. This is the only image that should carry readable title text.
+- Middle images = KNOWLEDGE. One fact, step, or demo per image. Characters silently illustrate the idea, like a diagram come to life.
+- Last image = CTA. Invite a comment, a follow, or "想知更多冷知識". Warm and useful, not salesy.
+
+Mission priorities:
+1. Make the idea easy for the general public. One takeaway per image.
+2. Accurate, calm, and friendly. No fear-mongering, gore, or sensational drama.
+3. If selected characters exist, they should appear in most frames, matching name, background, and reference images.
+4. Do not invent official policies, statistics, laws, or organisational instructions unless the user provides them.
+5. Knowledge lives in the off-screen narrator (dialogue field), not as character speech. Middle and last images should not carry paragraphs of text. The hook may show a short title.
 
 You control the workbench through structured actions (tools):
-- Global story design (collapsible sheet over the canvas) = project-level educational direction / creative system prompt.
-- Storyboard canvas (center) = per-page learning beat, composition, dialogue/voiceover, and image prompts.
-- The user chat (right panel) is your control channel. Obey revision requests surgically when possible.
+- Visual direction (collapsible sheet) = look and tone for the whole set.
+- Image canvas (center) = one card per image.
+- Chat (right) = the control channel. Obey revision requests surgically when possible.
 
-Always reply with valid JSON only:
+Always reply with valid JSON only. Escape double quotes inside strings. Put a comma between every array item. Do not omit commas, trailing comments, or markdown fences.
 {
   "reply": "short explanation of what you changed / will do",
   "actions": [
@@ -245,26 +265,28 @@ Always reply with valid JSON only:
 }
 
 Field guidance:
-- summary: the educational goal of the whole piece.
-- audience: who should learn from this (e.g. families, students, office workers).
-- pacing: how learning beats progress across pages.
-- scene / idea: the teaching situation on that page.
-- dialogue: a short spoken line that teaches or guides (not pure banter).
-- suggestedText: concise on-screen educational caption or reminder.
-- composition: staging that makes the lesson visually obvious.
-- imagePrompt: production-ready English visual prompt supporting the lesson; no readable text/logos/watermarks in the image.
+- summary: the one idea this set introduces to the public.
+- audience: who should understand this (usually the general public).
+- pacing: hook → knowledge beats → CTA.
+- scene / idea: what the picture shows. Visual only.
+- title: for the hook, a short on-image headline that attracts taps. Keep it to a few words. Leave later images without on-image titles.
+- dialogue: the narrator script for this image. 1–2 spoken sentences from an off-screen explainer. Never write this as a character talking, quoting, or chatting. Characters stay silent and only pose / demonstrate.
+- characters: who appears and what they are doing as a visual demo. No spoken lines.
+- suggestedText: optional short social caption for posting. Not burned into the image except on the hook, where title may appear.
+- composition: staging that makes the idea obvious at a glance.
+- imagePrompt: production-ready English visual prompt. Include selected characters when available. For the hook, explicitly ask for a large, readable title using the title field. For other images, no readable text, logos, captions, or watermarks.
 
 Action rules:
-1. Prefer surgical actions (update_page / merge upsert) for local edits such as "change page 3 to night".
-2. Use upsert_pages with mode "replace" only for full redesigns or when creating the board from scratch.
-3. When revising existing pages, keep their id (or pageIndex) so images can be preserved.
+1. Prefer surgical actions (update_page / merge upsert) for local edits such as "change image 3 to night".
+2. Use upsert_pages with mode "replace" only for full redesigns or when creating the set from scratch.
+3. When revising existing images, keep their id (or pageIndex) so generated pictures can be preserved.
 4. Include generate_images only when the user asks to generate/regenerate images, or after a redesign that clearly needs new frames.
-5. Keep brand, selected characters, educational tone, and global style consistent across pages.
-6. Prefer ${pageHint} for new boards unless the user specifies otherwise.
+5. Keep selected characters, tone, and visual style consistent across the set.
+6. Prefer ${pageHint} for a new set unless the user specifies otherwise. First image is the hook; last image is the CTA.
 7. Write design fields, titles, scene, characters, dialogue, suggestedText, composition, and idea in ${outputLanguage}.
 8. Write imagePrompt in detailed English.
-9. If the user's idea is vague, default to a practical educational safety/preparedness angle rather than a purely narrative story.
-10. If the user only chats casually with no board change, return reply plus an empty actions array.`;
+9. If the user's idea is vague, pick a practical public-interest / survival 冷知識 angle and still use hook → knowledge → CTA.
+10. If the user only chats casually with no canvas change, return reply plus an empty actions array.`;
 }
 
 export function buildAgentUserContent(context: StoryboardAgentContext): PoePart[] {
@@ -282,10 +304,11 @@ export function buildAgentUserContent(context: StoryboardAgentContext): PoePart[
   const pages = context.imagePages.map((page, index) => ({
     id: page.id,
     pageIndex: index,
+    role: carouselRole(index, context.imagePages.length),
     title: page.title,
     scene: page.scene,
     characters: page.characters,
-    dialogue: page.dialogue,
+    voiceover: page.dialogue,
     suggestedText: page.suggestedText,
     composition: page.composition,
     imagePrompt: page.imagePrompt,
@@ -300,15 +323,15 @@ export function buildAgentUserContent(context: StoryboardAgentContext): PoePart[
 Format: ${context.format ?? "not selected"} ${context.aspectRatio ?? ""}
 Active page id: ${context.activePageId ?? "none"}
 
-Current global story design (project prompt):\n${JSON.stringify(context.storyDesign, null, 2)}
+Current visual direction:\n${JSON.stringify(context.storyDesign, null, 2)}
 
-Current storyboard pages (canvas):\n${JSON.stringify(pages, null, 2)}
+Current image cards (canvas). Role is derived from order: first=hook, last=cta, middle=knowledge.\n${JSON.stringify(pages, null, 2)}
 
-Selected characters (from @mentions or the current cast; use each character's name, background, and reference images):\n${mascotContext}
+Selected characters (from @mentions or the current cast; use each character's name, background, and reference images in the pictures):\n${mascotContext}
 
-Story materials:\n${materials || "None"}
+Reference materials:\n${materials || "None"}
 
-Operate via actions. Preserve page ids when editing existing pages.`,
+Operate via actions. Preserve page ids when editing existing images.`,
     },
   ];
 
@@ -670,8 +693,8 @@ export function runStoryboardAgentTurn({
   return poeChatJson<AgentTurnResponse>({
     apiKey,
     model: textModel,
-    maxTokens: 3600,
-    temperature: 0.7,
+    maxTokens: 6000,
+    temperature: 0.5,
     signal,
     messages: [
       {
@@ -692,6 +715,8 @@ export async function generateStoryboardPageImage({
   aspectRatio,
   selectedCharacters,
   referenceImageDataUrl,
+  pageIndex = 0,
+  pageCount = 1,
 }: {
   apiKey: string;
   imageModel: string;
@@ -700,8 +725,21 @@ export async function generateStoryboardPageImage({
   aspectRatio: string | null;
   selectedCharacters: Character[];
   referenceImageDataUrl: string | null;
+  pageIndex?: number;
+  pageCount?: number;
 }) {
   const lockedAspect = aspectRatio ?? "9:16";
+  const role = carouselRole(pageIndex, pageCount);
+  const roleBrief =
+    role === "hook"
+      ? "HOOK — surprising, curiosity-first cover. Include a short, large, readable title or question on the image to attract taps. Not a lecture."
+      : role === "cta"
+        ? "CTA — warm closing visual that invites a comment, follow, or learning more. No walls of text."
+        : "KNOWLEDGE — one clear demo or fact, shown visually. Characters act out the idea. Almost no readable text.";
+  const textRule =
+    role === "hook"
+      ? `Include a short punchy on-image title. Use this exact title text if provided: "${page.title || page.scene}". Large, readable, well-designed typography. Do not dump the narrator script onto the image.`
+      : "No readable text, logos, captions, speech bubbles, or watermarks. Do not paint the narrator script onto the image.";
   const characterNotes = selectedCharacters
     .map((character) => `${character.name}: ${character.background}`)
     .join("; ");
@@ -709,20 +747,21 @@ export async function generateStoryboardPageImage({
     .filter((line) => !line.endsWith(": "))
     .join("\n");
 
-  const promptText = `Generate one educational illustration for a Hong Kong public-safety learning storyboard.
-Purpose: clear teaching visual for disaster preparedness / survival awareness content. Calm, trustworthy, practical — not scary or sensational.
+  const promptText = `Generate one popular-science carousel image from a user idea.
+This is image ${pageIndex + 1} of ${pageCount}. Role: ${roleBrief}
+People will swipe through these images while an off-screen narrator explains the knowledge. Characters are silent visual demonstrators, not speakers. No speech bubbles.
+${textRule}
 Aspect ratio: ${lockedAspect}
-Global educational design:
+Visual direction:
 ${designNotes}
-Page title: ${page.title}
-Learning scene: ${page.scene}
+What's in the image: ${page.scene}
+On-image title: ${page.title || "n/a"}
 Characters / demo actions: ${page.characters}
-Composition for teaching clarity: ${page.composition}
-Dialogue / lesson cue: ${page.dialogue}
+Composition: ${page.composition}
 Character continuity: ${characterNotes || "n/a"}
 Image prompt:
 ${page.imagePrompt}
-No text, logos, watermarks, or gore in the image. Prefer clean staging that makes the safety lesson easy to understand.`;
+No gore. Keep it calm, clear, and easy to understand at a glance.`;
 
   const content: PoePart[] = [{ type: "text", text: promptText }];
 
@@ -753,7 +792,9 @@ No text, logos, watermarks, or gore in the image. Prefer clean staging that make
       {
         role: "system",
         content:
-          "You generate educational public-safety visuals for HKSDPCL. Return one clear teaching image. Keep character likeness consistent with any reference images. Respect the requested aspect ratio exactly. Avoid fear-mongering, gore, panic, or entertainment-only staging.",
+          role === "hook"
+            ? "You generate the opening hook image for an HKSDPCL popular-science carousel. Include a short, large, readable title or question that attracts taps. Characters are silent demonstrators, not speakers — no speech bubbles. Keep character likeness consistent with any reference images. Respect the requested aspect ratio exactly. Avoid fear-mongering, gore, or panic."
+            : "You generate popular-science carousel images for HKSDPCL. Return one clear visual with almost no readable text. Characters are silent demonstrators, not speakers — no speech bubbles. Keep character likeness consistent with any reference images. Respect the requested aspect ratio exactly. Avoid fear-mongering, gore, panic, or story-only staging.",
       },
       { role: "user", content },
     ],

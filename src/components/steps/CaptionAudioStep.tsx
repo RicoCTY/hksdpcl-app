@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { poeChatJson, PoeApiError } from "@/lib/poeApi";
+import { carouselRole } from "@/lib/storyboardAgent";
 import {
   useProjectStore,
   type AudioVariant,
@@ -82,19 +83,19 @@ export function CaptionAudioStep() {
           {
             role: "system",
             content:
-              "You are an educational narrator for HKSDPCL (Hong Kong Survival and Disaster Prevention Council) short-form learning content. Return valid JSON only: {\"segments\":[{\"imageId\":string,\"text\":string,\"startSeconds\":number,\"durationSeconds\":number}]}. Write one concise educational narration segment per image that teaches a practical safety / preparedness takeaway. Tone: calm, clear, reassuring, and public-education focused — not dramatic or fear-based. Prefer actionable guidance over storytelling fluff. Write in Traditional Chinese in a formal written style, without Cantonese colloquialisms. Start at 0 and make timings sequential with a 0.5 second breathing gap. Estimate duration at a natural speaking pace.",
+              "You write an independent narrator script for HKSDPCL popular-science image carousels. People swipe the images while this audio plays. The voice is a single off-screen explainer — never a character in the picture speaking, quoting, or acting out dialogue. Return valid JSON only: {\"segments\":[{\"imageId\":string,\"text\":string,\"startSeconds\":number,\"durationSeconds\":number}]}. Write one spoken segment per image. Use each page's dialogue as the intended narrator line when it exists; otherwise write a new line. Structure: first image hooks curiosity, middle images teach one fact each, last image is a CTA (comment, follow, or learn more). Tone: clear, friendly, easy to listen to — like a short explainer for the general public, not a dramatic story and not stiff written Chinese. Prefer Traditional Chinese that sounds natural when spoken. Start at 0 and make timings sequential with a 0.5 second breathing gap. Estimate duration at a natural speaking pace.",
           },
           {
             role: "user",
             content: `Idea: ${ideaText}
 Caption direction: ${brief.captionDirection}
 Summary: ${brief.summary || storyDesign.summary}
-Global story design: ${JSON.stringify(storyDesign)}
-Storyboard pages:
+Visual direction: ${JSON.stringify(storyDesign)}
+Image cards:
 ${imagePages
   .map(
     (page, index) =>
-      `${index + 1}. id=${page.id}, title=${page.title}, scene=${page.scene}, dialogue=${page.dialogue}, suggestedText=${page.suggestedText}`,
+      `${index + 1}. id=${page.id}, role=${carouselRole(index, imagePages.length)}, scene=${page.scene}, voiceover=${page.dialogue}, caption=${page.suggestedText}`,
   )
   .join("\n")}
 Images:

@@ -1,7 +1,7 @@
-import { LoaderCircle, Sparkles, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
+import { AutoGrowTextarea } from "@/components/ui/auto-grow-textarea";
 import { cn } from "@/lib/utils";
 import { DESIGN_FIELDS } from "@/lib/storyboardAgent";
 import { useProjectStore, type StoryDesign } from "@/store/projectStore";
@@ -9,19 +9,11 @@ import { useProjectStore, type StoryDesign } from "@/store/projectStore";
 interface DesignSheetProps {
   open: boolean;
   onClose: () => void;
-  onRedesign: () => void;
-  isGenerating: boolean;
 }
 
-export function DesignSheet({
-  open,
-  onClose,
-  onRedesign,
-  isGenerating,
-}: DesignSheetProps) {
+export function DesignSheet({ open, onClose }: DesignSheetProps) {
   const { t } = useTranslation();
   const storyDesign = useProjectStore((s) => s.storyDesign);
-  const setStoryDesignField = useProjectStore((s) => s.setStoryDesignField);
 
   useEffect(() => {
     if (!open) return;
@@ -62,30 +54,14 @@ export function DesignSheet({
           >
             {t("workflow.workbench.designTitle")}
           </p>
-          <div className="flex items-center gap-1.5">
-            <Button
-              size="sm"
-              variant="outline"
-              className="rounded-full"
-              disabled={isGenerating}
-              onClick={onRedesign}
-            >
-              {isGenerating ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <Sparkles />
-              )}
-              {t("workflow.workbench.redesign")}
-            </Button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="grid size-8 place-items-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground"
-              aria-label={t("workflow.workbench.closeDesign")}
-            >
-              <X className="size-4" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid size-8 place-items-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground"
+            aria-label={t("workflow.workbench.closeDesign")}
+          >
+            <X className="size-4" />
+          </button>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
           {DESIGN_FIELDS.map((field) => (
@@ -93,13 +69,11 @@ export function DesignSheet({
               <span className="text-[11px] font-semibold tracking-wide text-muted-foreground">
                 {t(`workflow.workbench.design.${field}`)}
               </span>
-              <textarea
+              <AutoGrowTextarea
+                readOnly
+                tabIndex={-1}
                 value={storyDesign[field as keyof StoryDesign]}
-                rows={field === "summary" || field === "style" ? 3 : 2}
-                onChange={(event) =>
-                  setStoryDesignField(field, event.target.value)
-                }
-                className="mt-1.5 w-full resize-y rounded-xl border border-transparent bg-muted/50 px-3 py-2 text-xs leading-relaxed text-foreground outline-none transition-colors focus:border-border focus:bg-background"
+                className="mt-1.5 w-full cursor-default rounded-xl border border-transparent bg-muted/50 px-3 py-2 text-xs leading-relaxed text-foreground outline-none"
               />
             </label>
           ))}
