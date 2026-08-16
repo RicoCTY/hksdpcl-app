@@ -1,6 +1,6 @@
 [package]
 name = "hksdpcl-studio"
-version = "0.2.3"
+version = "0.2.4"
 description = "HKSDPCL Studio — Instagram content agent for Hong Kong Survival and Disaster Prevention Council"
 authors = ["Hong Kong Survival and Disaster Prevention Council"]
 edition = "2021"

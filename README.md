@@ -111,7 +111,7 @@ Version lives in two files and must stay in sync:
 - `package.json`
 - `src-tauri/tauri.conf.json`
 
-Both are currently `0.2.3`. To ship a version:
+Both are currently `0.2.4`. To ship a version:
 
 ```bash
 git tag v0.2.0
@@ -150,7 +150,7 @@ Use the Apple Silicon `.dmg` on M-series Macs and the Intel `.dmg` on Intel Macs
 
 Windows: SmartScreen → More info → Run anyway. That warning is expected for an unsigned installer. It is not a broken download.
 
-If the installer runs but the installed app **double-clicking does nothing** (no window, no error), install `0.2.3` or newer. Older builds crashed on launch because an unused updater plugin was registered without a signing key.
+If the installer runs but the installed app **double-clicking does nothing** (no window, no error), install `0.2.4` or newer. Older builds crashed on launch because an unused updater plugin was registered without a signing key.
 
 The installer also embeds an offline WebView2 runtime. If a machine still has a broken WebView2 setup, reinstalling repairs it without needing internet. To check whether WebView2 is present, run in PowerShell:
 
@@ -162,13 +162,13 @@ If that returns nothing, reinstall the app, or grab the "Evergreen Standalone In
 
 ### Later builds
 
-1. Bump the version in **both** `package.json` and `src-tauri/tauri.conf.json` (for example `0.2.3` → `0.2.4`).
+1. Bump the version in **both** `package.json` and `src-tauri/tauri.conf.json` (for example `0.2.4` → `0.2.5`).
 2. Commit and push to `main`.
 3. Tag and push the same version:
 
 ```bash
-git tag v0.2.4
-git push origin v0.2.4
+git tag v0.2.5
+git push origin v0.2.5
 ```
 
 4. Wait for the Release workflow, **Publish** the new draft, then send users the new installer. There is no in-app update check.
