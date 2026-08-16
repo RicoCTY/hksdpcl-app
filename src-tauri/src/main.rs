@@ -62,7 +62,7 @@ fn show_windows_error(message: &str) {
 fn show_macos_error(message: &str) {
     let escaped = message
         .replace('\\', "\\\\")
-        .replace('"', '\\"')
+        .replace('"', "\\\"")
         .replace('\n', "\" & return & \"");
     let script = format!(
         r#"display dialog "{escaped}" with title "HKSDPCL Studio" buttons {{"OK"}} default button "OK" with icon stop"#
