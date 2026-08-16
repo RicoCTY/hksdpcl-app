@@ -94,9 +94,9 @@ Project drafts, mascot records, and model settings are currently kept locally in
 
 The Poe API key is masked in the UI, but this web-first build still uses local web storage. Before a public multi-user release, move key storage to Tauri secure storage or use Poe OAuth / a backend token broker. Never ship a shared Poe API key in the frontend.
 
-## CI, download, and updates
+## CI and downloadable builds
 
-This is a single-operator desktop app. Builds are unsigned. GitHub Actions does the packaging; you publish the Release so it can be downloaded.
+This is a single-operator desktop app. Builds are unsigned. GitHub Actions packages the installers; you publish the Release and send users the file yourself. The app does not check for updates.
 
 ### Everyday CI (no installer)
 
@@ -111,7 +111,7 @@ Version lives in two files and must stay in sync:
 - `package.json`
 - `src-tauri/tauri.conf.json`
 
-Both are currently `0.2.0`. To ship a version:
+Both are currently `0.2.3`. To ship a version:
 
 ```bash
 git tag v0.2.0
@@ -124,7 +124,7 @@ The **Release** workflow then builds:
 - macOS Intel `.dmg`
 - Windows NSIS `.exe`
 
-When it finishes, GitHub creates a **draft** at [Releases](https://github.com/RicoCTY/hksdpcl-app/releases). Open that draft and click **Publish release**. Until you publish, there is nothing to download and Settings cannot see a newer version.
+When it finishes, GitHub creates a **draft** at [Releases](https://github.com/RicoCTY/hksdpcl-app/releases). Open that draft and click **Publish release**. Until you publish, there is nothing to download.
 
 Download page after publish:
 
@@ -148,34 +148,27 @@ open "/Applications/HKSDPCL Studio.app"
 
 Use the Apple Silicon `.dmg` on M-series Macs and the Intel `.dmg` on Intel Macs. The real fix is an Apple Developer ID certificate plus notarization.
 
-Windows: SmartScreen → More info → Run anyway.
+Windows: SmartScreen → More info → Run anyway. That warning is expected for an unsigned installer. It is not a broken download.
 
-If the app installs but **double-clicking does nothing** (no window, no error), the WebView2 Runtime is missing or broken. The installer embeds an offline WebView2 installer, so reinstalling should repair it — no internet needed during install. To check whether WebView2 is present, run in PowerShell:
+If the installer runs but the installed app **double-clicking does nothing** (no window, no error), install `0.2.3` or newer. Older builds crashed on launch because an unused updater plugin was registered without a signing key.
+
+The installer also embeds an offline WebView2 runtime. If a machine still has a broken WebView2 setup, reinstalling repairs it without needing internet. To check whether WebView2 is present, run in PowerShell:
 
 ```powershell
 Get-AppxPackage -AllUsers -Name "Microsoft.WebView2Runtime"
 ```
 
-If that returns nothing, reinstall the app, or grab the "Evergreen Standalone Installer" from <https://developer.microsoft.com/microsoft-edge/webview2>. If the downloaded `.exe` itself refuses to start or disappears, check the antivirus quarantine — unsigned NSIS installers are frequent false positives.
+If that returns nothing, reinstall the app, or grab the "Evergreen Standalone Installer" from <https://developer.microsoft.com/microsoft-edge/webview2>. If the downloaded `.exe` itself refuses to start or disappears, check the antivirus quarantine — unsigned NSIS installers are frequent false positives. A tiny downloaded `.exe` (a few hundred KB or less) is usually a GitHub login/404 page saved with the wrong name, which happens when the repository is private.
 
-### Later updates
+### Later builds
 
-1. Bump the version in **both** `package.json` and `src-tauri/tauri.conf.json` (for example `0.1.0` → `0.2.0`).
+1. Bump the version in **both** `package.json` and `src-tauri/tauri.conf.json` (for example `0.2.3` → `0.2.4`).
 2. Commit and push to `main`.
 3. Tag and push the same version:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.4
+git push origin v0.2.4
 ```
 
-4. Wait for the Release workflow, then **Publish** the new draft.
-
-In the installed app: Settings → Help → **Check for updates**.
-
-- Current version is the same as or newer than the latest **published** GitHub Release → “You're on the latest version”
-- GitHub has a newer tag (for example `v0.2.0`) → “Version 0.2.0 is available” → **Install and restart** opens that Release page so you can download and install again
-
-Drafts do not count. If you forget to publish, the app will keep saying it is up to date.
-
-There is no silent in-app overlay install. Update means download the new installer and replace the old app.
+4. Wait for the Release workflow, **Publish** the new draft, then send users the new installer. There is no in-app update check.

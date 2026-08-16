@@ -1,8 +1,5 @@
 # Builds macOS (arm64 + Intel) and Windows installers.
-# After generating updater keys, add GitHub secrets:
-#   TAURI_SIGNING_PRIVATE_KEY
-#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-# then set bundle.createUpdaterArtifacts to true and add plugins.updater.pubkey.
+# Distribution is manual: publish the draft Release, then send users the installer.
 name: Release
 
 on:
@@ -48,22 +45,18 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: HKSDPCL Studio ${{ github.ref_name }}
           releaseBody: |
             Download the installer for your computer.
 
+            **Windows:** run the installer, then open HKSDPCL Studio from the Start menu or desktop shortcut. Version 0.2.3 and newer should show a window. If an older build does nothing when opened, install this version instead.
+
             **macOS:** the unsigned build will look “damaged”. That is Gatekeeper, not a broken file. Drag the app to Applications, then run:
 
             `xattr -cr "/Applications/HKSDPCL Studio.app"`
 
             Use the Apple Silicon DMG on M-series Macs, or the Intel DMG on Intel Macs.
-
-            **Windows:** SmartScreen → More info → Run anyway. If the installed app does nothing when opened, reinstall it — the installer embeds an offline WebView2 runtime, and reinstalling repairs broken WebView2 setups without needing internet.
-
-            After install, Settings → Help can check for later updates.
           releaseDraft: true
           args: ${{ matrix.args }}

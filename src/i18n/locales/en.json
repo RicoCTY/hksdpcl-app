@@ -129,14 +129,6 @@
     "designerName": "RicoCTY",
     "versionLabel": "Version",
     "version": "v{{version}}",
-    "updatesTitle": "App updates",
-    "updatesDescription": "Update checks are only available in the Windows and macOS desktop app",
-    "checkForUpdates": "Check for updates",
-    "checkingUpdates": "Checking…",
-    "upToDate": "You're on the latest version",
-    "updateAvailable": "Version {{version}} is available",
-    "installUpdate": "Install and restart",
-    "updateCheckFailed": "Could not check for updates. Please try again.",
     "backHome": "Back to home"
   },
   "characters": {

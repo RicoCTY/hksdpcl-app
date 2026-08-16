@@ -16,7 +16,6 @@ import {
   Lightbulb,
   Palette,
   Pencil,
-  RefreshCw,
   Trash2,
   Volume2,
 } from "lucide-react";
@@ -34,7 +33,6 @@ import {
   useProjectStore,
   type ModelSettingKey,
 } from "@/store/projectStore";
-import { checkAppUpdate, openAppUpdate, type AppUpdateInfo } from "@/lib/appUpdate";
 import { cn } from "@/lib/utils";
 
 type SettingsSectionId = "general" | "models" | "appearance" | "help";
@@ -374,10 +372,6 @@ export function SettingsView() {
   const [revealStoredApiKey, setRevealStoredApiKey] = useState(false);
   const [isEditingApiKey, setIsEditingApiKey] = useState(false);
   const [apiKeyDraft, setApiKeyDraft] = useState("");
-  const [updateBusy, setUpdateBusy] = useState(false);
-  const [updateMessage, setUpdateMessage] = useState("");
-  const [availableVersion, setAvailableVersion] = useState("");
-  const pendingUpdateRef = useRef<AppUpdateInfo | null>(null);
   const [activeSection, setActiveSection] =
     useState<SettingsSectionId>("general");
   const settingsContentRef = useRef<HTMLDivElement>(null);
@@ -458,33 +452,6 @@ export function SettingsView() {
     programmaticScrollTimerRef.current = window.setTimeout(() => {
       programmaticScrollRef.current = false;
     }, reduceMotion ? 0 : 800);
-  };
-
-  const checkForUpdates = async () => {
-    setUpdateBusy(true);
-    setAvailableVersion("");
-    pendingUpdateRef.current = null;
-    setUpdateMessage(t("settings.checkingUpdates"));
-    try {
-      const update = await checkAppUpdate();
-      if (!update) {
-        setUpdateMessage(t("settings.upToDate"));
-        return;
-      }
-      pendingUpdateRef.current = update;
-      setAvailableVersion(update.version);
-      setUpdateMessage(t("settings.updateAvailable", { version: update.version }));
-    } catch {
-      setUpdateMessage(t("settings.updateCheckFailed"));
-    } finally {
-      setUpdateBusy(false);
-    }
-  };
-
-  const installPendingUpdate = () => {
-    const update = pendingUpdateRef.current;
-    if (!update) return;
-    openAppUpdate(update);
   };
 
   const languageOptions: { id: AppLocale; label: string }[] = [
@@ -790,47 +757,6 @@ export function SettingsView() {
                   <code className="mt-3 block overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-[12px] text-foreground">
                     {t("settings.firstLaunchCommand")}
                   </code>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="flex flex-col gap-4 pt-5 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-start gap-3">
-                    <RefreshCw className="mt-0.5 size-4 text-muted-foreground" />
-                    <div>
-                      <h3 className="text-sm font-bold text-foreground">
-                        {t("settings.updatesTitle")}
-                      </h3>
-                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                        {t("settings.updatesDescription")}
-                      </p>
-                      {updateMessage && (
-                        <p className="mt-2 text-xs leading-relaxed text-foreground">
-                          {updateMessage}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    className="h-11 shrink-0 rounded-xl px-3"
-                    disabled={updateBusy}
-                    onClick={() =>
-                      void (availableVersion
-                        ? installPendingUpdate()
-                        : checkForUpdates())
-                    }
-                  >
-                    {updateBusy ? (
-                      <RefreshCw className="size-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="size-3.5" />
-                    )}
-                    {availableVersion
-                      ? t("settings.installUpdate")
-                      : updateBusy
-                        ? t("settings.checkingUpdates")
-                        : t("settings.checkForUpdates")}
-                  </Button>
                 </CardContent>
               </Card>
             </div>

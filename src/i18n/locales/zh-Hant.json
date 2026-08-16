@@ -129,14 +129,6 @@
     "designerName": "RicoCTY",
     "versionLabel": "版本",
     "version": "v{{version}}",
-    "updatesTitle": "應用程式更新",
-    "updatesDescription": "檢查更新只適用於 Windows 同 macOS 桌面版",
-    "checkForUpdates": "檢查更新",
-    "checkingUpdates": "檢查中…",
-    "upToDate": "已是最新版本",
-    "updateAvailable": "有新版本 {{version}}",
-    "installUpdate": "安裝並重新啟動",
-    "updateCheckFailed": "無法檢查更新，請稍後再試。",
     "backHome": "返回主頁"
   },
   "characters": {
